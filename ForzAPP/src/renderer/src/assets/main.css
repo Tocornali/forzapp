@@ -1,32 +1,98 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-brand-primary: #20b2aa;
+  --color-brand-primary-hover: #189e97;
+  --color-brand-primary-active: #14857f;
+  --color-brand-primary-light: #57c7b9;
+  --color-brand-primary-lighter: #8fdcd3;
+  --color-brand-dark: #1a1c1e;
+  --color-brand-dark-card: #232629;
+  --color-brand-dark-card-to: #1d1f21;
+  --color-brand-dark-border: #2c3033;
+  --color-brand-dark-hover: #2d3135;
+  --color-brand-dark-deep: #121415;
+  --color-brand-dark-input: #151719;
+  --color-brand-light: #f8fafc;
+
+  --animate-marquee: marquee 40s linear infinite;
+
+  @keyframes marquee {
+    0% {
+      transform: translateX(0%);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+}
 
 @layer base {
   body {
-    background-color: #0b0f19;
+    background-color: #1a1c1e;
     color: #f1f5f9;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family:
+      'Inter',
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Oxygen,
+      Ubuntu,
+      Cantarell,
+      sans-serif;
     overflow-x: hidden;
     user-select: none;
     margin: 0;
     padding: 0;
   }
+
+  input,
+  select,
+  textarea {
+    @apply border-brand-primary/20 dark:border-brand-primary/30 transition-all duration-200 outline-none;
+  }
+
+  input:hover,
+  select:hover,
+  textarea:hover {
+    @apply border-brand-primary/60! shadow-[0_0_10px_rgba(32,178,170,0.15)]!;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    @apply border-brand-primary! ring-2 ring-brand-primary/20!;
+  }
+
+  button:not(:disabled),
+  .button-action:not(:disabled) {
+    @apply cursor-pointer hover:shadow-lg active:scale-[0.97] transition-all duration-200;
+  }
+
+  a[href]:active:not(.no-scale) {
+    @apply scale-[0.97] transition-all duration-200;
+  }
 }
 
-/* Custom scrollbar for premium look */
+/* Custom scrollbar for premium look matching the new palette */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #1a1c1e;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: rgba(32, 178, 170, 0.2);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #e11d48;
+  background: #20b2aa;
 }

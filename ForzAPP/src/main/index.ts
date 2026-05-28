@@ -1,15 +1,19 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+let mainWindow: BrowserWindow | null = null
+
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
+    frame: false, // Make window frameless
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -19,7 +23,15 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window-maximized-state', true)
+  })
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window-maximized-state', false)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -53,49 +65,208 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  ipcMain.handle('get-forza-data', () => {
+  // IPC window controls
+  ipcMain.on('window-minimize', () => {
+    mainWindow?.minimize()
+  })
+
+  ipcMain.on('window-maximize', () => {
+    if (mainWindow) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize()
+      } else {
+        mainWindow.maximize()
+      }
+    }
+  })
+
+  ipcMain.on('window-close', () => {
+    mainWindow?.close()
+  }) // Helper to normalize strings for comparison
+  const normalizeStr = (str: string): string => {
+    if (!str) return ''
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+  }
+
+  // Helper to get unique key for a car
+  const getCarKey = (car: any): string => {
+    const brand = car.Brand || ''
+    const pointField = car['point2580/4160'] || ''
+    const yearMatch = pointField.trim().match(/^(\d{4})\b/)
+    const year = yearMatch ? yearMatch[1] : ''
+    const model = year ? pointField.substring(5) : pointField
+    return `${normalizeStr(brand)}_${normalizeStr(year)}_${normalizeStr(model)}`
+  }
+
+  // Asynchronous background sync from GitHub Raw
+  const syncDatabaseFromWeb = async (localData: any[]): Promise<any[] | null> => {
+    const remoteUrl = 'https://raw.githubusercontent.com/Tocornali/forzapp/main/FH6Cars.json'
+    try {
+      console.log('Background Sync: Fetching remote database from GitHub...')
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 6000) // 6 seconds timeout
+
+      const response = await fetch(remoteUrl, { signal: controller.signal })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const remoteData = (await response.json()) as any[]
+      if (!Array.isArray(remoteData)) {
+        throw new Error('Remote database is not an array')
+      }
+
+      const localMap = new Map<string, any>()
+      localData.forEach((car) => {
+        localMap.set(getCarKey(car), car)
+      })
+
+      let hasChanges = false
+      const mergedList: any[] = []
+
+      remoteData.forEach((remoteCar) => {
+        const key = getCarKey(remoteCar)
+        if (localMap.has(key)) {
+          const localCar = localMap.get(key)
+          // Keep remote data, but preserve local progress properties
+          const mergedCar = {
+            ...remoteCar,
+            'Is own?': localCar['Is own?'] !== undefined ? localCar['Is own?'] : 'FALSE',
+            NeedsRepair: localCar.NeedsRepair !== undefined ? localCar.NeedsRepair : false,
+            RaceType: localCar.RaceType !== undefined ? localCar.RaceType : '',
+            RacesCount: localCar.RacesCount !== undefined ? localCar.RacesCount : 0
+          }
+          mergedList.push(mergedCar)
+        } else {
+          // New car from GitHub
+          const newCar = {
+            ...remoteCar,
+            'Is own?': 'FALSE',
+            NeedsRepair: false,
+            RaceType: '',
+            RacesCount: 0
+          }
+          mergedList.push(newCar)
+          hasChanges = true
+          console.log(
+            `Background Sync: New car found: ${remoteCar.Brand} ${remoteCar['point2580/4160']}`
+          )
+        }
+      })
+
+      // Include user-created/local-only cars if they aren't in remote database
+      const remoteKeys = new Set(remoteData.map((c) => getCarKey(c)))
+      localData.forEach((localCar) => {
+        const key = getCarKey(localCar)
+        if (!remoteKeys.has(key)) {
+          mergedList.push(localCar)
+        }
+      })
+
+      if (hasChanges || mergedList.length !== localData.length) {
+        // Sort final list by Brand index "1" numerically, then model alphabetically
+        mergedList.sort((a, b) => {
+          const brandA = Number(a['1']) || 0
+          const brandB = Number(b['1']) || 0
+          if (brandA !== brandB) return brandA - brandB
+          return a['point2580/4160'].localeCompare(b['point2580/4160'])
+        })
+        return mergedList
+      }
+
+      console.log('Background Sync: Local database is already up to date.')
+      return null
+    } catch (error) {
+      console.error('Background Sync: Failed to sync database from GitHub:', error)
+      return null
+    }
+  }
+
+  ipcMain.handle('get-forza-data', async () => {
+    const userDataPath = join(app.getPath('userData'), 'FH6Cars.json')
+    let localData: any[] = []
+    let loadPath = ''
+
     const possiblePaths = [
-      join(process.cwd(), 'ForzaAPIJSON.json'),
-      join(app.getAppPath(), 'ForzaAPIJSON.json'),
-      join(__dirname, '../../src/renderer/src/assets/ForzaAPIJSON.json'),
-      join(__dirname, '../../ForzaAPIJSON.json'),
-      join(__dirname, '../renderer/assets/ForzaAPIJSON.json')
-    ];
+      userDataPath,
+      join(process.cwd(), 'FH6Cars.json'),
+      join(app.getAppPath(), 'FH6Cars.json'),
+      join(__dirname, '../../src/renderer/src/assets/FH6Cars.json'),
+      join(__dirname, '../../FH6Cars.json'),
+      join(__dirname, '../renderer/assets/FH6Cars.json')
+    ]
 
     for (const p of possiblePaths) {
       try {
         if (fs.existsSync(p)) {
-          const raw = fs.readFileSync(p, 'utf-8');
-          return JSON.parse(raw);
+          const raw = fs.readFileSync(p, 'utf-8')
+          localData = JSON.parse(raw)
+          loadPath = p
+          break
         }
       } catch (e) {
-        console.error(`Failed reading ${p}`, e);
+        console.error(`Failed reading ${p}`, e)
       }
     }
-    return null;
+
+    // Copy to userData path immediately to initialize if we loaded from bundled resources
+    if (loadPath && loadPath !== userDataPath) {
+      try {
+        fs.writeFileSync(userDataPath, JSON.stringify(localData, null, 2), 'utf-8')
+      } catch (e) {
+        console.error('Failed initializing userData database', e)
+      }
+    }
+
+    // Trigger background update checks asynchronously
+    setTimeout(async () => {
+      const mergedList = await syncDatabaseFromWeb(localData)
+      if (mergedList) {
+        try {
+          fs.writeFileSync(userDataPath, JSON.stringify(mergedList, null, 2), 'utf-8')
+          console.log('Background Sync: Successfully saved updated database to disk.')
+          // Notify the renderer to reload state
+          mainWindow?.webContents.send('forza-data-updated', mergedList)
+        } catch (writeErr) {
+          console.error('Background Sync: Failed writing updated database:', writeErr)
+        }
+      }
+    }, 1500)
+
+    return localData
   })
 
   ipcMain.handle('save-forza-data', (_, data) => {
     const possiblePaths = [
-      join(process.cwd(), 'ForzaAPIJSON.json'),
-      join(app.getAppPath(), 'ForzaAPIJSON.json'),
-      join(__dirname, '../../src/renderer/src/assets/ForzaAPIJSON.json'),
-      join(__dirname, '../../ForzaAPIJSON.json')
-    ];
+      join(app.getPath('userData'), 'FH6Cars.json'),
+      join(process.cwd(), 'FH6Cars.json'),
+      join(app.getAppPath(), 'FH6Cars.json'),
+      join(__dirname, '../../src/renderer/src/assets/FH6Cars.json'),
+      join(__dirname, '../../FH6Cars.json')
+    ]
 
-    let saved = false;
+    let saved = false
     for (const p of possiblePaths) {
       try {
-        // Guardar en todas las ubicaciones posibles donde exista el archivo
-        if (fs.existsSync(p) || p === join(process.cwd(), 'ForzaAPIJSON.json')) {
-          fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
-          saved = true;
+        if (
+          p === join(app.getPath('userData'), 'FH6Cars.json') ||
+          fs.existsSync(p) ||
+          p === join(process.cwd(), 'FH6Cars.json')
+        ) {
+          fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8')
+          saved = true
         }
       } catch (e) {
-        console.error(`Failed writing ${p}`, e);
+        console.error(`Failed writing ${p}`, e)
       }
     }
-    return saved;
+    return saved
   })
 
   createWindow()

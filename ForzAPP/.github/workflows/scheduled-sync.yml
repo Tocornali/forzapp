@@ -1,0 +1,33 @@
+name: Weekly Scheduled Sync
+
+on:
+  schedule:
+    # Runs every Thursday at 11:30 UTC-4 (15:30 UTC)
+    - cron: '30 15 * * 4'
+  workflow_dispatch:
+    # Allows manual triggering from the GitHub Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure Git Author
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run vehicle scraper and push updates
+        run: npm run release-update
