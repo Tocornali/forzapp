@@ -104,7 +104,7 @@ app.whenReady().then(() => {
 
   // Asynchronous background sync from GitHub Raw
   const syncDatabaseFromWeb = async (localData: any[]): Promise<any[] | null> => {
-    const remoteUrl = 'https://raw.githubusercontent.com/Tocornali/forzapp/main/FH6Cars.json'
+    const remoteUrl = 'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
     try {
       console.log('Background Sync: Fetching remote database from GitHub...')
       const controller = new AbortController()
@@ -267,6 +267,113 @@ app.whenReady().then(() => {
       }
     }
     return saved
+  })
+
+  ipcMain.handle('check-forza-updates', async () => {
+    const userDataPath = join(app.getPath('userData'), 'FH6Cars.json')
+    let localData: any[] = []
+
+    const possiblePaths = [
+      userDataPath,
+      join(process.cwd(), 'FH6Cars.json'),
+      join(app.getAppPath(), 'FH6Cars.json'),
+      join(__dirname, '../../src/renderer/src/assets/FH6Cars.json'),
+      join(__dirname, '../../FH6Cars.json'),
+      join(__dirname, '../renderer/assets/FH6Cars.json')
+    ]
+
+    for (const p of possiblePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf-8')
+          localData = JSON.parse(raw)
+          break
+        }
+      } catch (e) {
+        console.error(`Failed reading ${p}`, e)
+      }
+    }
+
+    const remoteUrl = 'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
+
+      const response = await fetch(remoteUrl, { signal: controller.signal })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const remoteData = (await response.json()) as any[]
+      if (!Array.isArray(remoteData)) {
+        throw new Error('Remote database is not an array')
+      }
+
+      const localMap = new Map<string, any>()
+      localData.forEach((car) => {
+        localMap.set(getCarKey(car), car)
+      })
+
+      const newCarsAdded: any[] = []
+      const mergedList: any[] = []
+
+      remoteData.forEach((remoteCar) => {
+        const key = getCarKey(remoteCar)
+        if (localMap.has(key)) {
+          const localCar = localMap.get(key)
+          const mergedCar = {
+            ...remoteCar,
+            'Is own?': localCar['Is own?'] !== undefined ? localCar['Is own?'] : 'FALSE',
+            NeedsRepair: localCar.NeedsRepair !== undefined ? localCar.NeedsRepair : false,
+            RaceType: localCar.RaceType !== undefined ? localCar.RaceType : '',
+            RacesCount: localCar.RacesCount !== undefined ? localCar.RacesCount : 0
+          }
+          mergedList.push(mergedCar)
+        } else {
+          const newCar = {
+            ...remoteCar,
+            'Is own?': 'FALSE',
+            NeedsRepair: false,
+            RaceType: '',
+            RacesCount: 0
+          }
+          mergedList.push(newCar)
+          newCarsAdded.push(remoteCar)
+        }
+      })
+
+      const remoteKeys = new Set(remoteData.map((c) => getCarKey(c)))
+      localData.forEach((localCar) => {
+        const key = getCarKey(localCar)
+        if (!remoteKeys.has(key)) {
+          mergedList.push(localCar)
+        }
+      })
+
+      if (newCarsAdded.length > 0) {
+        mergedList.sort((a, b) => {
+          const brandA = Number(a['1']) || 0
+          const brandB = Number(b['1']) || 0
+          if (brandA !== brandB) return brandA - brandB
+          return a['point2580/4160'].localeCompare(b['point2580/4160'])
+        })
+        fs.writeFileSync(userDataPath, JSON.stringify(mergedList, null, 2), 'utf-8')
+      }
+
+      return {
+        success: true,
+        newCars: newCarsAdded,
+        updatedList: mergedList
+      }
+    } catch (error: any) {
+      console.error('Manual Update Sync: Failed:', error)
+      return {
+        success: false,
+        error: error.message || 'Error de conexión'
+      }
+    }
   })
 
   createWindow()

@@ -138,7 +138,26 @@ export const translations = {
     'Confirm.deleteCar': '¿Estás seguro de que deseas eliminar el vehículo {carName}?',
     'Alert.reloadSuccess':
       '¡JSON recargado exitosamente desde el disco! ({count} vehículos cargados)',
-    'Alert.reloadError': 'Se recargaron en la app, pero hubo un error al leer del JSON físico.'
+    'Alert.reloadError': 'Se recargaron en la app, pero hubo un error al leer del JSON físico.',
+    'Navbar.sync': 'Sincronizar Catálogo',
+    'Navbar.syncTitle': 'Buscar nuevos vehículos en internet',
+    'Navbar.changelog': 'Historial',
+    'Navbar.changelogTitle': 'Ver el historial de vehículos agregados recientemente',
+    'SyncModal.checking': 'Sincronizando catálogo...',
+    'SyncModal.checkingDesc': 'Conectando con el repositorio para buscar nuevos vehículos de Forza Horizon 6...',
+    'SyncModal.noUpdates': 'Catálogo al día',
+    'SyncModal.noUpdatesDesc': 'Tu catálogo está completamente actualizado. ¡No se encontraron vehículos nuevos!',
+    'SyncModal.updatesFound': '¡Nuevos vehículos agregados!',
+    'SyncModal.updatesFoundDesc': 'Se han encontrado e integrado {count} vehículos nuevos a tu catálogo:',
+    'SyncModal.error': 'Error de conexión',
+    'SyncModal.errorDesc': 'No se pudieron buscar actualizaciones: {error}',
+    'SyncModal.close': 'Entendido',
+    'ChangelogModal.title': 'Historial de Actualizaciones',
+    'ChangelogModal.empty': 'Sin actualizaciones registradas',
+    'ChangelogModal.emptyDesc': 'Los vehículos nuevos agregados por sincronización aparecerán listados aquí por fecha.',
+    'ChangelogModal.clear': 'Limpiar Historial',
+    'ChangelogModal.confirmClear': '¿Estás seguro de que deseas vaciar el historial de actualizaciones?',
+    'ChangelogModal.close': 'Cerrar'
   },
   en: {
     // Navbar
@@ -274,6 +293,25 @@ export const translations = {
     'Alert.clearAllOwnedSuccessAppOnly': 'All vehicles have been unchecked as owned in the app.',
     'Confirm.deleteCar': 'Are you sure you want to delete the vehicle {carName}?',
     'Alert.reloadSuccess': 'JSON successfully reloaded from disk! ({count} vehicles loaded)',
-    'Alert.reloadError': 'Reloaded in the app, but there was an error reading from physical JSON.'
+    'Alert.reloadError': 'Reloaded in the app, but there was an error reading from physical JSON.',
+    'Navbar.sync': 'Sync Catalog',
+    'Navbar.syncTitle': 'Check for new vehicles online',
+    'Navbar.changelog': 'Changelog',
+    'Navbar.changelogTitle': 'View history of recently added vehicles',
+    'SyncModal.checking': 'Syncing catalog...',
+    'SyncModal.checkingDesc': 'Connecting to the repository to check for new Forza Horizon 6 vehicles...',
+    'SyncModal.noUpdates': 'Catalog Up to Date',
+    'SyncModal.noUpdatesDesc': 'Your catalog is fully up to date. No new vehicles were found!',
+    'SyncModal.updatesFound': 'New vehicles added!',
+    'SyncModal.updatesFoundDesc': 'Successfully found and integrated {count} new vehicles into your catalog:',
+    'SyncModal.error': 'Connection error',
+    'SyncModal.errorDesc': 'Could not check for updates: {error}',
+    'SyncModal.close': 'Got it',
+    'ChangelogModal.title': 'Update Changelog',
+    'ChangelogModal.empty': 'No updates recorded',
+    'ChangelogModal.emptyDesc': 'New vehicles added via synchronization will be listed here by date.',
+    'ChangelogModal.clear': 'Clear History',
+    'ChangelogModal.confirmClear': 'Are you sure you want to clear the update history?',
+    'ChangelogModal.close': 'Close'
   }
 } as const

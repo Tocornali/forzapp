@@ -1,5 +1,5 @@
 import React from 'react'
-import { Flame, Heart, Car as CarIcon, Sparkles, X, Plus } from 'lucide-react'
+import { Flame, Heart, Car as CarIcon, Sparkles, X, Plus, RefreshCw, History } from 'lucide-react'
 import { Language, translations } from '../translations'
 
 interface NavbarProps {
@@ -9,6 +9,8 @@ interface NavbarProps {
   garageCount: number
   onClearAllOwned: () => void
   onAddCar: () => void
+  onSyncCatalog: () => void
+  onOpenChangelog: () => void
   language: Language
   toggleLanguage: () => void
 }
@@ -20,6 +22,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   garageCount,
   onClearAllOwned,
   onAddCar,
+  onSyncCatalog,
+  onOpenChangelog,
   language,
   toggleLanguage
 }): React.JSX.Element => {
@@ -96,6 +100,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               EN
             </span>
+          </button>
+
+          {/* Sync Catalog Button */}
+          <button
+            onClick={onSyncCatalog}
+            className="flex items-center gap-1.5 rounded-full border border-brand-dark-border bg-brand-dark-card/85 px-4 py-2 text-xs font-bold text-slate-300 hover:bg-brand-primary/10 hover:text-brand-primary hover:border-brand-primary/45 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title={t['Navbar.syncTitle']}
+          >
+            <RefreshCw className="h-3.5 w-3.5 text-brand-primary animate-hover-spin" />
+            <span className="hidden sm:inline">{t['Navbar.sync']}</span>
+          </button>
+
+          {/* Changelog Button */}
+          <button
+            onClick={onOpenChangelog}
+            className="flex items-center gap-1.5 rounded-full border border-brand-dark-border bg-brand-dark-card/85 px-4 py-2 text-xs font-bold text-slate-300 hover:bg-brand-primary/10 hover:text-brand-primary hover:border-brand-primary/45 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title={t['Navbar.changelogTitle']}
+          >
+            <History className="h-3.5 w-3.5 text-brand-primary" />
+            <span className="hidden sm:inline">{t['Navbar.changelog']}</span>
           </button>
 
           {/* Clear All Owned Button */}
