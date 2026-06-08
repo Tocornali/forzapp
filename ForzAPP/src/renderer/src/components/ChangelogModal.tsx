@@ -52,14 +52,24 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({
 
   const getClassBadgeStyle = (cls: string) => {
     switch (cls.toUpperCase().trim()) {
-      case 'D': return 'bg-cyan-500 text-slate-950 shadow-cyan-500/20'
-      case 'C': return 'bg-yellow-500 text-slate-950 shadow-yellow-500/20'
-      case 'B': return 'bg-orange-500 text-slate-950 shadow-orange-500/20'
-      case 'A': return 'bg-red-600 text-white shadow-red-600/20'
-      case 'S1': return 'bg-purple-600 text-white shadow-purple-600/20'
-      case 'S2': return 'bg-blue-600 text-white shadow-blue-600/20'
-      case 'X': return 'bg-emerald-600 text-white shadow-emerald-600/20'
-      default: return 'bg-slate-600 text-white shadow-slate-600/20'
+      case 'D':
+        return 'bg-cyan-500 text-slate-950 shadow-cyan-500/20'
+      case 'C':
+        return 'bg-yellow-500 text-slate-950 shadow-yellow-500/20'
+      case 'B':
+        return 'bg-orange-500 text-slate-950 shadow-orange-500/20'
+      case 'A':
+        return 'bg-red-600 text-white shadow-red-600/20'
+      case 'S1':
+        return 'bg-purple-600 text-white shadow-purple-600/20'
+      case 'S2':
+        return 'bg-blue-600 text-white shadow-blue-600/20'
+      case 'R':
+        return 'bg-rose-600 text-white shadow-rose-600/20'
+      case 'X':
+        return 'bg-emerald-600 text-white shadow-emerald-600/20'
+      default:
+        return 'bg-slate-600 text-white shadow-slate-600/20'
     }
   }
 
@@ -132,9 +142,13 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {/* Class */}
-                        <div className={`flex items-center gap-0.5 rounded-lg px-2 py-0.5 font-black text-[9px] shadow-sm ${getClassBadgeStyle(car.Class)}`}>
+                        <div
+                          className={`flex items-center gap-0.5 rounded-lg px-2 py-0.5 font-black text-[9px] shadow-sm ${getClassBadgeStyle(car.Class)}`}
+                        >
                           <Trophy className="h-2.5 w-2.5 shrink-0" />
-                          <span>{car.Class} {car.PI}</span>
+                          <span>
+                            {car.Class} {car.PI}
+                          </span>
                         </div>
                         {/* Source */}
                         <div className="flex items-center rounded-lg px-1.5 py-0.5 border border-slate-700/40 bg-slate-800/30 text-[9px] font-bold text-slate-400 max-w-[80px] truncate">

@@ -189,6 +189,7 @@ export const CarModal: React.FC<CarModalProps> = ({
                 <option value="A">A</option>
                 <option value="S1">S1</option>
                 <option value="S2">S2</option>
+                <option value="R">R</option>
                 <option value="X">X</option>
               </select>
             </div>

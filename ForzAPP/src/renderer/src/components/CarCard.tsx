@@ -47,6 +47,8 @@ const getClassBadge = (carClass: string): { bg: string; glow: string } => {
       return { bg: 'bg-purple-600 text-white', glow: 'shadow-purple-600/20' }
     case 'S2':
       return { bg: 'bg-blue-600 text-white', glow: 'shadow-blue-600/20' }
+    case 'R':
+      return { bg: 'bg-rose-600 text-white', glow: 'shadow-rose-600/20' }
     case 'X':
       return { bg: 'bg-emerald-600 text-white', glow: 'shadow-emerald-600/20' }
     default:
@@ -64,6 +66,10 @@ const getRaceTypeBadge = (type?: string): { bg: string; label: string } => {
       return { bg: 'bg-orange-500/20 text-orange-400 border-orange-500/30', label: 'Rally' }
     case 'Off Road':
       return { bg: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'Off Road' }
+    case 'Drag':
+      return { bg: 'bg-rose-500/20 text-rose-400 border-rose-500/30', label: 'Drag' }
+    case 'Drift':
+      return { bg: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', label: 'Drift' }
     default:
       return {
         bg: 'bg-slate-800/40 text-slate-500 border-slate-700/50',
@@ -101,6 +107,10 @@ export const CarCard: React.FC<CarCardProps> = ({
         return 'Rally'
       case 'Off Road':
         return 'Off Road'
+      case 'Drag':
+        return 'Drag'
+      case 'Drift':
+        return 'Drift'
       default:
         return t['CarCard.noRace']
     }
@@ -238,6 +248,7 @@ export const CarCard: React.FC<CarCardProps> = ({
                 className="w-full bg-brand-dark-input text-white text-xs font-bold rounded-lg px-2 py-1 border border-brand-dark-border focus:outline-none focus:border-brand-primary cursor-pointer"
               >
                 <option value="X">X</option>
+                <option value="R">R</option>
                 <option value="S2">S2</option>
                 <option value="S1">S1</option>
                 <option value="A">A</option>
@@ -276,6 +287,8 @@ export const CarCard: React.FC<CarCardProps> = ({
                 <option value="Road">Road</option>
                 <option value="Rally">Rally</option>
                 <option value="Off Road">Off Road</option>
+                <option value="Drag">Drag</option>
+                <option value="Drift">Drift</option>
               </select>
             </div>
           </div>

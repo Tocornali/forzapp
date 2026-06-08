@@ -104,7 +104,8 @@ app.whenReady().then(() => {
 
   // Asynchronous background sync from GitHub Raw
   const syncDatabaseFromWeb = async (localData: any[]): Promise<any[] | null> => {
-    const remoteUrl = 'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
+    const remoteUrl =
+      'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
     try {
       console.log('Background Sync: Fetching remote database from GitHub...')
       const controller = new AbortController()
@@ -294,7 +295,8 @@ app.whenReady().then(() => {
       }
     }
 
-    const remoteUrl = 'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
+    const remoteUrl =
+      'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 8000)

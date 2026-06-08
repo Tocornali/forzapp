@@ -34,9 +34,7 @@ export const SyncModal: React.FC<SyncModalProps> = ({
             <h2 className="text-xl font-extrabold text-white tracking-tight mb-2">
               {t['SyncModal.checking']}
             </h2>
-            <p className="text-sm text-slate-400 max-w-sm">
-              {t['SyncModal.checkingDesc']}
-            </p>
+            <p className="text-sm text-slate-400 max-w-sm">{t['SyncModal.checkingDesc']}</p>
           </div>
         )
       case 'error':
@@ -63,9 +61,7 @@ export const SyncModal: React.FC<SyncModalProps> = ({
               <h2 className="text-xl font-extrabold text-white tracking-tight mb-2">
                 {t['SyncModal.noUpdates']}
               </h2>
-              <p className="text-sm text-slate-400 max-w-sm">
-                {t['SyncModal.noUpdatesDesc']}
-              </p>
+              <p className="text-sm text-slate-400 max-w-sm">{t['SyncModal.noUpdatesDesc']}</p>
             </div>
           )
         } else {
@@ -94,14 +90,24 @@ export const SyncModal: React.FC<SyncModalProps> = ({
 
                   const getClassBadgeStyle = (cls: string) => {
                     switch (cls) {
-                      case 'D': return 'bg-cyan-500 text-slate-950 shadow-cyan-500/20'
-                      case 'C': return 'bg-yellow-500 text-slate-950 shadow-yellow-500/20'
-                      case 'B': return 'bg-orange-500 text-slate-950 shadow-orange-500/20'
-                      case 'A': return 'bg-red-600 text-white shadow-red-600/20'
-                      case 'S1': return 'bg-purple-600 text-white shadow-purple-600/20'
-                      case 'S2': return 'bg-blue-600 text-white shadow-blue-600/20'
-                      case 'X': return 'bg-emerald-600 text-white shadow-emerald-600/20'
-                      default: return 'bg-slate-600 text-white shadow-slate-600/20'
+                      case 'D':
+                        return 'bg-cyan-500 text-slate-950 shadow-cyan-500/20'
+                      case 'C':
+                        return 'bg-yellow-500 text-slate-950 shadow-yellow-500/20'
+                      case 'B':
+                        return 'bg-orange-500 text-slate-950 shadow-orange-500/20'
+                      case 'A':
+                        return 'bg-red-600 text-white shadow-red-600/20'
+                      case 'S1':
+                        return 'bg-purple-600 text-white shadow-purple-600/20'
+                      case 'S2':
+                        return 'bg-blue-600 text-white shadow-blue-600/20'
+                      case 'R':
+                        return 'bg-rose-600 text-white shadow-rose-600/20'
+                      case 'X':
+                        return 'bg-emerald-600 text-white shadow-emerald-600/20'
+                      default:
+                        return 'bg-slate-600 text-white shadow-slate-600/20'
                     }
                   }
 
@@ -114,17 +120,22 @@ export const SyncModal: React.FC<SyncModalProps> = ({
                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
                           {car.Brand}
                         </span>
-                        <span className="text-sm font-extrabold text-white truncate">
-                          {model}
-                        </span>
+                        <span className="text-sm font-extrabold text-white truncate">{model}</span>
                         <span className="text-xs text-slate-400">
-                          Año: <span className="font-semibold text-slate-355">{year || car.Year || 'N/A'}</span>
+                          Año:{' '}
+                          <span className="font-semibold text-slate-355">
+                            {year || car.Year || 'N/A'}
+                          </span>
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <div className={`flex items-center gap-1 rounded-lg px-2 py-0.5 font-black text-[10px] shadow-sm ${getClassBadgeStyle(carClass)}`}>
+                        <div
+                          className={`flex items-center gap-1 rounded-lg px-2 py-0.5 font-black text-[10px] shadow-sm ${getClassBadgeStyle(carClass)}`}
+                        >
                           <Trophy className="h-3 w-3 shrink-0" />
-                          <span>{carClass} {carPI}</span>
+                          <span>
+                            {carClass} {carPI}
+                          </span>
                         </div>
                         <div className="flex items-center rounded-lg px-2 py-0.5 border border-slate-700/50 bg-slate-800/40 text-[10px] font-bold text-slate-400">
                           <Flag className="h-2.5 w-2.5 shrink-0 mr-1 text-slate-500" />

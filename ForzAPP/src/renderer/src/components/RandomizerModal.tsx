@@ -191,6 +191,8 @@ export const RandomizerModal: React.FC<RandomizerModalProps> = ({
         return 'border-purple-600/30 hover:border-purple-600/60 active:bg-purple-600/20 text-purple-400'
       case 'S2':
         return 'border-blue-600/30 hover:border-blue-600/60 active:bg-blue-600/20 text-blue-400'
+      case 'R':
+        return 'border-rose-600/30 hover:border-rose-600/60 active:bg-rose-600/20 text-rose-500'
       case 'X':
         return 'border-emerald-600/30 hover:border-emerald-600/60 active:bg-emerald-600/20 text-emerald-400'
       default:
@@ -212,6 +214,8 @@ export const RandomizerModal: React.FC<RandomizerModalProps> = ({
         return 'bg-purple-600 text-white font-black ring-2 ring-purple-600/40 border-purple-600 shadow-md shadow-purple-600/20'
       case 'S2':
         return 'bg-blue-600 text-white font-black ring-2 ring-blue-600/40 border-blue-600 shadow-md shadow-blue-600/20'
+      case 'R':
+        return 'bg-rose-600 text-white font-black ring-2 ring-rose-600/40 border-rose-600 shadow-md shadow-rose-600/20'
       case 'X':
         return 'bg-emerald-600 text-white font-black ring-2 ring-emerald-600/40 border-emerald-600 shadow-md shadow-emerald-600/20'
       default:
@@ -311,32 +315,34 @@ export const RandomizerModal: React.FC<RandomizerModalProps> = ({
                 >
                   {t['Randomizer.any']}
                 </button>
-                {['Callejera', 'Road', 'Rally', 'Off Road', 'Sin Asignar'].map((race) => {
-                  const isSel = selectedRaceType === race
-                  const label =
-                    race === 'Callejera'
-                      ? language === 'es'
-                        ? 'Callejera'
-                        : 'Street'
-                      : race === 'Sin Asignar'
+                {['Callejera', 'Road', 'Rally', 'Off Road', 'Drag', 'Drift', 'Sin Asignar'].map(
+                  (race) => {
+                    const isSel = selectedRaceType === race
+                    const label =
+                      race === 'Callejera'
                         ? language === 'es'
-                          ? 'Sin Asignar'
-                          : 'Unassigned'
-                        : race
-                  return (
-                    <button
-                      key={race}
-                      onClick={() => setSelectedRaceType(race)}
-                      className={`cursor-pointer rounded-xl px-3.5 py-2 text-xs font-bold transition-all border ${
-                        isSel
-                          ? 'bg-amber-600 border-amber-500 text-white shadow-md shadow-amber-600/20'
-                          : 'bg-brand-dark-deep/50 text-slate-400 border-brand-dark-border hover:border-brand-primary/40 hover:text-white'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
+                          ? 'Callejera'
+                          : 'Street'
+                        : race === 'Sin Asignar'
+                          ? language === 'es'
+                            ? 'Sin Asignar'
+                            : 'Unassigned'
+                          : race
+                    return (
+                      <button
+                        key={race}
+                        onClick={() => setSelectedRaceType(race)}
+                        className={`cursor-pointer rounded-xl px-3.5 py-2 text-xs font-bold transition-all border ${
+                          isSel
+                            ? 'bg-amber-600 border-amber-500 text-white shadow-md shadow-amber-600/20'
+                            : 'bg-brand-dark-deep/50 text-slate-400 border-brand-dark-border hover:border-brand-primary/40 hover:text-white'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  }
+                )}
               </div>
             </div>
 

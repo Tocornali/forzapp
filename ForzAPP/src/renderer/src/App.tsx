@@ -284,44 +284,44 @@ export default function App(): React.JSX.Element {
     onConfirm: () => {}
   })
 
-    // Catalog Sync Modal state
-    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
-    const [syncStatus, setSyncStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [newSyncedCars, setNewSyncedCars] = useState<any[]>([])
-    const [syncErrorMessage, setSyncErrorMessage] = useState('')
-  
-    // Changelog Modal state
-    const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false)
-    const [changelog, setChangelog] = useState<ChangelogEntry[]>(() => {
-      try {
-        const saved = localStorage.getItem('forza_changelog')
-        return saved ? JSON.parse(saved) : []
-      } catch {
-        return []
+  // Catalog Sync Modal state
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [newSyncedCars, setNewSyncedCars] = useState<any[]>([])
+  const [syncErrorMessage, setSyncErrorMessage] = useState('')
+
+  // Changelog Modal state
+  const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false)
+  const [changelog, setChangelog] = useState<ChangelogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('forza_changelog')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  // Persist changelog
+  useEffect(() => {
+    try {
+      localStorage.setItem('forza_changelog', JSON.stringify(changelog))
+    } catch (e) {
+      console.error('Failed to save changelog to localStorage', e)
+    }
+  }, [changelog])
+
+  const handleClearChangelog = (): void => {
+    setConfirmModal({
+      isOpen: true,
+      title: language === 'es' ? 'Limpiar Historial' : 'Clear History',
+      message: translations[language]['ChangelogModal.confirmClear'],
+      onConfirm: () => {
+        setChangelog([])
+        localStorage.removeItem('forza_changelog')
       }
     })
-  
-    // Persist changelog
-    useEffect(() => {
-      try {
-        localStorage.setItem('forza_changelog', JSON.stringify(changelog))
-      } catch (e) {
-        console.error('Failed to save changelog to localStorage', e)
-      }
-    }, [changelog])
-  
-    const handleClearChangelog = (): void => {
-      setConfirmModal({
-        isOpen: true,
-        title: language === 'es' ? 'Limpiar Historial' : 'Clear History',
-        message: translations[language]['ChangelogModal.confirmClear'],
-        onConfirm: () => {
-          setChangelog([])
-          localStorage.removeItem('forza_changelog')
-        }
-      })
-    }
+  }
 
   const handleSyncCatalog = async (): Promise<void> => {
     setIsSyncModalOpen(true)
@@ -378,7 +378,9 @@ export default function App(): React.JSX.Element {
                 const cClass = customPerformance[carKey]
                   ? customPerformance[carKey].CarClass
                   : parsedCar.CarClass || ''
-                const cPI = customPerformance[carKey] ? customPerformance[carKey].PI : parsedCar.PI || 0
+                const cPI = customPerformance[carKey]
+                  ? customPerformance[carKey].PI
+                  : parsedCar.PI || 0
                 const cRace =
                   customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
                     ? customPerformance[carKey].RaceType
@@ -602,7 +604,7 @@ export default function App(): React.JSX.Element {
               prevAllCars.map((c) => `${c.Manufacturer}-${c.Model}-${c.Year}`)
             )
             const rawNewCars: any[] = []
-            
+
             updatedData.forEach((item) => {
               const parsedCar = mapRawToCar(item)
               const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
@@ -659,7 +661,9 @@ export default function App(): React.JSX.Element {
               const cClass = customPerformance[carKey]
                 ? customPerformance[carKey].CarClass
                 : parsedCar.CarClass || ''
-              const cPI = customPerformance[carKey] ? customPerformance[carKey].PI : parsedCar.PI || 0
+              const cPI = customPerformance[carKey]
+                ? customPerformance[carKey].PI
+                : parsedCar.PI || 0
               const cRace =
                 customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
                   ? customPerformance[carKey].RaceType

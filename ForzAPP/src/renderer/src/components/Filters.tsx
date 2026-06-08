@@ -301,6 +301,12 @@ export const Filters: React.FC<FiltersProps> = ({
               <option value="Off Road" className="bg-brand-dark-deep text-white">
                 Off Road
               </option>
+              <option value="Drag" className="bg-brand-dark-deep text-white">
+                Drag
+              </option>
+              <option value="Drift" className="bg-brand-dark-deep text-white">
+                Drift
+              </option>
               <option value="Sin Asignar" className="bg-brand-dark-deep text-white">
                 {language === 'es' ? 'Sin Asignar' : 'Unassigned'}
               </option>
