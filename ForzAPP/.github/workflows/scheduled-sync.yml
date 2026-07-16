@@ -1,9 +1,9 @@
-name: Daily Scheduled Sync
+name: Frequent Scheduled Sync
 
 on:
   schedule:
-    # Runs every day at 11:30 UTC-4 (15:30 UTC)
-    - cron: '30 15 * * *'
+    # Runs every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     # Allows manual triggering from the GitHub Actions tab
 
