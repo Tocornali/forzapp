@@ -11,7 +11,7 @@ try {
   }
 
   console.log('Staging changes in FH6Cars.json...')
-  execSync('git add FH6Cars.json', { stdio: 'inherit' })
+  execSync('git add FH6Cars.json src/renderer/src/assets/FH6Cars.json scripts/update-cars.js scripts/git-push-build.js', { stdio: 'inherit' })
 
   console.log('Committing changes...')
   execSync('git commit -m "chore: sync vehicles list from web scraper"', { stdio: 'inherit' })

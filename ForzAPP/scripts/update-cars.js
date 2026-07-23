@@ -121,7 +121,7 @@ async function run() {
 
     // Parse rows
     const lines = tableStr.split('\n')
-    const rows = lines.filter((l) => l.trim().startsWith('|') && l.trim().endsWith('|'))
+    const rows = lines.filter((l) => l.trim().startsWith('|'))
 
     console.log(`Found ${rows.length} raw table rows in payload`)
 
@@ -223,7 +223,9 @@ async function run() {
 
       // Save database file back to disk
       fs.writeFileSync(dbPath, JSON.stringify(finalCars, null, 2), 'utf8')
-      console.log(`Successfully updated database file at ${dbPath}`)
+      const frontendDbPath = path.join(__dirname, '../src/renderer/src/assets/FH6Cars.json')
+      fs.writeFileSync(frontendDbPath, JSON.stringify(finalCars, null, 2), 'utf8')
+      console.log(`Successfully updated database file at ${dbPath} and frontend assets`)
     } else {
       console.log('No new vehicles found. Database is up to date.')
     }
