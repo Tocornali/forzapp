@@ -1,0 +1,336 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import fs from 'fs'
+
+const FH6_CARS_PAGE_URL = 'https://forza.net/fh6cars'
+const GITHUB_BACKUP_URL =
+  'https://raw.githubusercontent.com/tocornali/forzapp/main/ForzAPP/FH6Cars.json'
+
+// Normalization function that strips diacritics/accents and non-alphanumeric characters
+export function normalize(str: string): string {
+  if (!str) return ''
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
+// Known mappings to reconcile naming differences between table rows and DB keys
+export const KNOWN_MAPPINGS: Record<string, string> = {
+  rimac_2021_nevera: 'rimic_2021_nevera',
+  funcomotorsports_2018_f9: 'funco_2018_motorsportsf9',
+  deberti_2013_jeepwranglerunlimited: 'deberti_2018_jeepwranglerunlimited',
+  ford_1968_mustanggt22fastback: 'ford_1968_mustang22fastback',
+  ford_1968_mustanggt22fastbackforzaedition: 'ford_1968_mustang22fastbackforzaedition',
+  ford_2017_14rahallettermanlaniganracingfiesta: 'ford_2017_14rahallettermanlaniganracinggrcfiesta',
+  gmc_2022_hummerevpickup: 'gmc_2022_evhummerpickup',
+  gordonmurrayautomotive_2020_t50: 'gordonmurrayautomotive_2022_t50',
+  lamborghini_2022_aventadorlp7804ultimae: 'lamborghini_2021_aventadorlp7804ultimae',
+  porsche_1985_185959prodriverallyraid: 'porsche_1986_185959prodriverallyraid',
+  porsche_1997_911gt1strassenversion: 'porsche_1998_911gt1strassenversion',
+  porsche_2021_missionr: 'porsche_2022_missionr',
+  rivian_2022_r1t: 'rivian_2021_r1t',
+  rjanderson_2016_37polarisrzrpro2truck: 'rjanderson_2016_37polarisrzrrockstarenergypro2truck',
+  toyota_1993_1t100bajatruck: 'toyota_1993_1bajat100truck',
+  toyota_2013_86: 'toyota_2013_86stories',
+  wuling_2013_sunshinesforzaedition: 'wuling_2020_sunshinesforzaedition',
+  jimco_2019_240fastballracingclass6100spectrophytruck:
+    'jimco_2019_240fastballracingspectrophytruck',
+  honda_1990_19101motorsportcrxwtac: 'honda_1990_19crxwtac',
+  ford_2014_rangert6rallyraid: 'ford_2014_ranget6rallyraid',
+  lotus_2018_scuramotorsportsexigewtac: 'lotus_2018_scuramotorsportexigewtac'
+}
+
+export interface ParsedScrapedCar {
+  make: string
+  year: string
+  model: string
+  point2580: string
+  localClass: string
+  localSource: string
+  country?: string
+}
+
+// Parse markdown table row into standardized schema
+export function parseTableRow(
+  make: string,
+  carName: string,
+  carClass: string,
+  collection: string,
+  country?: string
+): ParsedScrapedCar {
+  make = make.trim()
+  carName = carName.trim()
+  carClass = carClass.trim()
+  collection = collection.trim()
+
+  const yearMatch = carName.match(/^(\d{4})\b/)
+  const year = yearMatch ? yearMatch[1] : ''
+
+  let model = carName
+  if (year) {
+    model = carName.substring(5).trim()
+  }
+
+  const makeLower = make.toLowerCase()
+  if (model.toLowerCase().startsWith(makeLower)) {
+    model = model.substring(make.length).trim()
+  }
+
+  const point2580 = year ? `${year} ${model}` : model
+
+  let localClass = carClass
+  const classMatch = carClass.match(/^(\d+)\s+(.+)$/)
+  if (classMatch) {
+    localClass = `${classMatch[2]} ${classMatch[1]}`
+  }
+
+  let localSource = collection.toLowerCase()
+  if (localSource.includes('autoshow') && localSource.includes('wheel')) {
+    localSource = 'autoshow, wheel'
+  } else if (localSource.includes('seasonal') && localSource.includes('wheel')) {
+    localSource = 'wheel, seasonal'
+  }
+
+  return {
+    make,
+    year,
+    model,
+    point2580,
+    localClass,
+    localSource,
+    country: country ? country.trim() : ''
+  }
+}
+
+export function getCarKey(car: any): string {
+  const brand = car.Brand || car.make || ''
+  const pointField = car['point2580/4160'] || car.point2580 || ''
+  const yearMatch = pointField.trim().match(/^(\d{4})\b/)
+  const year = yearMatch ? yearMatch[1] : car.year || ''
+  const model = year ? pointField.substring(5).trim() : car.model || pointField.trim()
+  let key = `${normalize(brand)}_${normalize(year)}_${normalize(model)}`
+  if (KNOWN_MAPPINGS[key]) {
+    key = KNOWN_MAPPINGS[key]
+  }
+  return key
+}
+
+// Scrape live cars from forza.net/fh6cars
+export async function scrapeLiveForzaCars(): Promise<ParsedScrapedCar[]> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const pageHtml = await fetch(FH6_CARS_PAGE_URL, { signal: controller.signal }).then((r) =>
+      r.text()
+    )
+
+    const match = pageHtml.match(/_payload\.json\?([a-zA-Z0-9-]+)/)
+    if (!match) {
+      throw new Error('No se encontró el hash de payload dinámico en la página de Forza')
+    }
+
+    const payloadUrl = `https://forza.net/fh6cars/_payload.json?${match[1]}`
+    const payload = (await fetch(payloadUrl, { signal: controller.signal }).then((r) =>
+      r.json()
+    )) as any[]
+
+    if (!Array.isArray(payload)) {
+      throw new Error('Formato de payload no reconocido')
+    }
+
+    const tableStr = payload.find(
+      (val) => typeof val === 'string' && val.includes('|Make|Car Name|')
+    )
+
+    if (!tableStr) {
+      throw new Error('No se encontró la tabla de vehículos en los datos de Forza')
+    }
+
+    const lines = tableStr.split('\n')
+    const rows = lines.filter((l: string) => l.trim().startsWith('|'))
+    const parsedCars: ParsedScrapedCar[] = []
+
+    rows.forEach((r: string) => {
+      const cols = r.split('|').map((c) => c.trim())
+      if (
+        cols.length < 7 ||
+        cols[1] === 'Make' ||
+        cols[1] === '---' ||
+        cols[1].startsWith('---')
+      ) {
+        return
+      }
+
+      const make = cols[1]
+      const carName = cols[2]
+      const carClass = cols[4]
+      const country = cols[5]
+      const collection = cols[6]
+
+      parsedCars.push(parseTableRow(make, carName, carClass, collection, country))
+    })
+
+    return parsedCars
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+// Fallback: fetch static database from GitHub
+export async function fetchGitHubBackupCars(): Promise<any[]> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 8000)
+
+  try {
+    const response = await fetch(GITHUB_BACKUP_URL, { signal: controller.signal })
+    if (!response.ok) {
+      throw new Error(`Error HTTP de GitHub: ${response.status}`)
+    }
+    const data = await response.json()
+    if (!Array.isArray(data)) {
+      throw new Error('Los datos remotos de GitHub no son un arreglo')
+    }
+    return data
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+export interface SyncResult {
+  success: boolean
+  newCars: any[]
+  updatedList: any[]
+  source: 'live-web' | 'github-fallback' | 'none'
+  error?: string
+}
+
+// Core sync engine that tries live web first, falls back to GitHub, merges with local data and saves
+export async function performFullSync(
+  localData: any[],
+  savePaths: string[] = []
+): Promise<SyncResult> {
+  const localMap = new Map<string, any>()
+  localData.forEach((car) => {
+    localMap.set(getCarKey(car), car)
+  })
+
+  let liveCars: ParsedScrapedCar[] | null = null
+  let githubData: any[] | null = null
+  let syncSource: 'live-web' | 'github-fallback' | 'none' = 'none'
+
+  // 1. Try live web scrape first
+  try {
+    console.log('SyncService: Intentando sincronización directa desde forza.net/fh6cars...')
+    liveCars = await scrapeLiveForzaCars()
+    syncSource = 'live-web'
+    console.log(`SyncService: Web oficial scrapeada con éxito (${liveCars.length} vehículos leídos).`)
+  } catch (webErr: any) {
+    console.warn('SyncService: Falló el scraping web directo:', webErr.message)
+    console.log('SyncService: Intentando respaldo desde GitHub Raw...')
+    try {
+      githubData = await fetchGitHubBackupCars()
+      syncSource = 'github-fallback'
+      console.log(`SyncService: Respaldo de GitHub obtenido con éxito (${githubData.length} vehículos).`)
+    } catch (gitErr: any) {
+      console.error('SyncService: Ambos métodos de sincronización fallaron:', gitErr.message)
+      return {
+        success: false,
+        newCars: [],
+        updatedList: localData,
+        source: 'none',
+        error: `No se pudo conectar a forza.net (${webErr.message}) ni a GitHub (${gitErr.message})`
+      }
+    }
+  }
+
+  const finalCars = [...localData]
+  const newCarsAdded: any[] = []
+
+  if (syncSource === 'live-web' && liveCars) {
+    liveCars.forEach((parsedCar) => {
+      let key = `${normalize(parsedCar.make)}_${normalize(parsedCar.year)}_${normalize(parsedCar.model)}`
+      if (KNOWN_MAPPINGS[key]) {
+        key = KNOWN_MAPPINGS[key]
+      }
+
+      if (!localMap.has(key)) {
+        // Find existing brand index or increment max
+        const existingBrands = finalCars.filter(
+          (c) => (c.Brand || '').toLowerCase() === parsedCar.make.toLowerCase()
+        )
+        let brandIndex = 1
+        if (existingBrands.length > 0) {
+          brandIndex = Number(existingBrands[0]['1']) || 1
+        } else {
+          const maxIndex = Math.max(...finalCars.map((c) => Number(c['1']) || 0), 0)
+          brandIndex = maxIndex + 1
+        }
+
+        const newCarObj: any = {
+          1: brandIndex,
+          '': '',
+          Brand: parsedCar.make,
+          'collect point': 5,
+          'point2580/4160': parsedCar.point2580,
+          Class: parsedCar.localClass,
+          __1: '',
+          source: parsedCar.localSource,
+          Price: '',
+          'Is own?': 'FALSE',
+          '326/605': '',
+          NeedsRepair: false,
+          RaceType: '',
+          RacesCount: 0
+        }
+
+        finalCars.push(newCarObj)
+        localMap.set(key, newCarObj)
+        newCarsAdded.push(newCarObj)
+      }
+    })
+  } else if (syncSource === 'github-fallback' && githubData) {
+    githubData.forEach((remoteCar) => {
+      const key = getCarKey(remoteCar)
+      if (!localMap.has(key)) {
+        const newCarObj = {
+          ...remoteCar,
+          'Is own?': 'FALSE',
+          NeedsRepair: false,
+          RaceType: '',
+          RacesCount: 0
+        }
+        finalCars.push(newCarObj)
+        localMap.set(key, newCarObj)
+        newCarsAdded.push(newCarObj)
+      }
+    })
+  }
+
+  // If new cars were found, sort catalog and persist to disk paths
+  if (newCarsAdded.length > 0) {
+    finalCars.sort((a, b) => {
+      const brandA = Number(a['1']) || 0
+      const brandB = Number(b['1']) || 0
+      if (brandA !== brandB) return brandA - brandB
+      return (a['point2580/4160'] || '').localeCompare(b['point2580/4160'] || '')
+    })
+
+    savePaths.forEach((filePath) => {
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(finalCars, null, 2), 'utf-8')
+        console.log(`SyncService: Guardado exitoso en ${filePath}`)
+      } catch (saveErr) {
+        console.error(`SyncService: Error guardando en ${filePath}:`, saveErr)
+      }
+    })
+  }
+
+  return {
+    success: true,
+    newCars: newCarsAdded,
+    updatedList: finalCars,
+    source: syncSource
+  }
+}
