@@ -36,7 +36,7 @@ export const Pagination: React.FC<PaginationProps> = ({
   const endItem = Math.min(currentPage * itemsPerPage, totalItems)
 
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-8 p-4 rounded-2xl border border-brand-dark-border bg-brand-dark-card/40 backdrop-blur-md shadow-lg animate-fadeIn">
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-8 p-4 rounded-2xl border border-brand-dark-border bg-brand-dark-card shadow-md animate-fadeIn">
       <div className="text-xs font-medium text-slate-400">
         Mostrando{' '}
         <span className="font-semibold text-slate-200">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useDeferredValue, useRef } from 'react'
 import forzaDataRaw from './assets/FH6Cars.json'
 import { Car } from './types'
 import { Navbar } from './components/Navbar'
@@ -8,12 +8,21 @@ import { GarageView } from './components/GarageView'
 import { CarModal } from './components/CarModal'
 import { Pagination } from './components/Pagination'
 import { RandomizerModal } from './components/RandomizerModal'
-import { Car as CarIcon, AlertCircle } from 'lucide-react'
+import { Car as CarIcon, AlertCircle, Flame, Sparkles, X } from 'lucide-react'
 import { Language, translations } from './translations'
 import { ConfirmationModal } from './components/ConfirmationModal'
 import { TitleBar } from './components/TitleBar'
 import { SyncModal } from './components/SyncModal'
 import { ChangelogModal, ChangelogEntry, ChangelogCar } from './components/ChangelogModal'
+import { CloudSyncModal } from './components/CloudSyncModal'
+import { dataService } from './services/dataService'
+import { liveUpdateService } from './services/liveUpdateService'
+import {
+  exportToCloud,
+  importFromCloud,
+  getSafetyBackup,
+  UserSyncPayload
+} from './services/cloudSyncService'
 
 // Helper to map FH6RawItem to Car structure
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,7 +131,37 @@ function getCarClassRank(carClass: string): number {
   return CLASS_ORDER[carClass.toUpperCase().trim()] || 0
 }
 
+const stringCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+
+// Helper to deduplicate cars by Manufacturer-Model-Year
+function deduplicateCars(cars: Car[]): Car[] {
+  const seen = new Set<string>()
+  const result: Car[] = []
+  for (const car of cars) {
+    const key = `${car.Manufacturer}-${car.Model}-${car.Year}`
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(car)
+    }
+  }
+  return result
+}
+
 export default function App(): React.JSX.Element {
+  // Initial loading state to ensure smooth boot
+  const [isAppReady, setIsAppReady] = useState(false)
+
+  useEffect(() => {
+    // Allows heavy initial car data calculations to settle
+    const timer = setTimeout(() => {
+      setIsAppReady(true)
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [])
+
   // Language state
   const [language, setLanguage] = useState<Language>(() => {
     const saved = localStorage.getItem('forza_lang')
@@ -140,7 +179,8 @@ export default function App(): React.JSX.Element {
   // Mapeo inicial desde el JSON estático
   const initialCars: Car[] = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (forzaDataRaw as any[]).map((item) => mapRawToCar(item))
+    const mapped = (forzaDataRaw as any[]).map((item) => mapRawToCar(item))
+    return deduplicateCars(mapped)
   }, [])
 
   // Modal states for Add/Edit
@@ -194,8 +234,11 @@ export default function App(): React.JSX.Element {
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const [selectedCarClass, setSelectedCarClass] = useState('')
   const [selectedCarType, setSelectedCarType] = useState('')
   const [selectedRaceType, setSelectedRaceType] = useState('')
+  const [filterFavorites, setFilterFavorites] = useState(false)
   const [sortBy, setSortBy] = useState('manuf-asc')
 
   // Ownership & Usage filter states
@@ -206,6 +249,18 @@ export default function App(): React.JSX.Element {
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 20
+
+  // Mobile Live Updates (Capgo OTA)
+  const [updateReadyVersion, setUpdateReadyVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    const unsubscribe = liveUpdateService.onUpdateDownloaded((version) => {
+      setUpdateReadyVersion(version)
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [])
 
   // Garage (Favorites) stored in localStorage
   const [garageList, setGarageList] = useState<Car[]>(() => {
@@ -268,6 +323,20 @@ export default function App(): React.JSX.Element {
     }
   })
 
+  // Stable refs to prevent cascading re-renders in memoized child cards
+  const allCarsRef = useRef(allCars)
+  allCarsRef.current = allCars
+  const ownedCarsRef = useRef(ownedCars)
+  ownedCarsRef.current = ownedCars
+
+  // Memoized Sets for O(1) lookups during filtering and rendering
+  const ownedSet = useMemo(() => new Set(ownedCars), [ownedCars])
+  const usedSet = useMemo(() => new Set(usedCars), [usedCars])
+  const repairSet = useMemo(() => new Set(repairCars), [repairCars])
+  const garageSet = useMemo(() => {
+    return new Set(garageList.map((item) => `${item.Manufacturer}-${item.Model}-${item.Year}`))
+  }, [garageList])
+
   // Randomizer Modal State
   const [isRandomizerModalOpen, setIsRandomizerModalOpen] = useState(false)
 
@@ -290,6 +359,9 @@ export default function App(): React.JSX.Element {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [newSyncedCars, setNewSyncedCars] = useState<any[]>([])
   const [syncErrorMessage, setSyncErrorMessage] = useState('')
+
+  // Cloud Sync Modal state
+  const [isCloudSyncModalOpen, setIsCloudSyncModalOpen] = useState(false)
 
   // Changelog Modal state
   const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false)
@@ -329,15 +401,342 @@ export default function App(): React.JSX.Element {
     setNewSyncedCars([])
     setSyncErrorMessage('')
 
-    if (window.electron && window.electron.ipcRenderer) {
+    try {
+      const currentOwnedSet = new Set(ownedCarsRef.current)
+      const mappedCurrent = allCars.map((c) => mapCarToRaw(c, currentOwnedSet))
+      const result = await dataService.checkForUpdates(mappedCurrent)
+      if (result.success) {
+        setNewSyncedCars(result.newCars)
+        setSyncStatus('success')
+        if (result.newCars.length > 0 && result.updatedList) {
+          // Update changelog
+          const changelogCars: ChangelogCar[] = result.newCars.map((item: any) => {
+            const parsed = mapRawToCar(item)
+            return {
+              Brand: parsed.Manufacturer,
+              Model: parsed.Model,
+              Year: parsed.Year,
+              Class: parsed.CarClass || 'D',
+              PI: parsed.PI || 100,
+              source: parsed.CarType || 'General'
+            }
+          })
+          setChangelog((prev) => {
+            if (prev.length > 0) {
+              const lastEntry = prev[0]
+              if (lastEntry.cars.length === changelogCars.length) {
+                const allSame = changelogCars.every((car) =>
+                  lastEntry.cars.some(
+                    (lastCar) =>
+                      lastCar.Brand === car.Brand &&
+                      lastCar.Model === car.Model &&
+                      lastCar.Year === car.Year
+                  )
+                )
+                if (allSame) return prev
+              }
+            }
+            return [
+              {
+                date: new Date().toISOString(),
+                cars: changelogCars
+              },
+              ...prev
+            ]
+          })
+          setAllCars(() => {
+            const mapped = result.updatedList.map((item: any) => {
+              const parsedCar = mapRawToCar(item)
+              const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
+              const cClass = customPerformance[carKey]
+                ? customPerformance[carKey].CarClass
+                : parsedCar.CarClass || ''
+              const cPI = customPerformance[carKey]
+                ? customPerformance[carKey].PI
+                : parsedCar.PI || 0
+              const cRace =
+                customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
+                  ? customPerformance[carKey].RaceType
+                  : parsedCar.RaceType || ''
+              const cRaces =
+                racesCount[carKey] !== undefined ? racesCount[carKey] : parsedCar.RacesCount || 0
+
+              return {
+                ...parsedCar,
+                CarClass: cClass,
+                PI: cPI,
+                RaceType: cRace,
+                RacesCount: cRaces
+              }
+            })
+
+            const diskRepairKeys = mapped
+              .filter((car) => car.NeedsRepair)
+              .map((car) => `${car.Manufacturer}-${car.Model}-${car.Year}`)
+            setRepairCars((prev) => Array.from(new Set([...prev, ...diskRepairKeys])))
+
+            const diskOwnedKeys = result.updatedList
+              .filter((item: any) => item['Is own?'] === 'TRUE' || item.isOwned)
+              .map((item: any) => {
+                const mappedCar = mapRawToCar(item)
+                return `${mappedCar.Manufacturer}-${mappedCar.Model}-${mappedCar.Year}`
+              })
+            setOwnedCars((prev) => Array.from(new Set([...prev, ...diskOwnedKeys])))
+
+            return mapped
+          })
+        }
+      } else {
+        setSyncStatus('error')
+        setSyncErrorMessage(result.error || 'Error al conectar')
+      }
+    } catch (err: any) {
+      console.error('Error during catalog sync', err)
+      setSyncStatus('error')
+      setSyncErrorMessage(err.message || 'Error de conexión')
+    }
+  }
+
+  // Helper para aplicar payload a estado y persistir
+  const applyPayloadToState = async (payload: UserSyncPayload): Promise<void> => {
+    setOwnedCars(payload.ownedCars)
+    setGarageList(payload.garageCars)
+    setUsedCars(payload.usedCars)
+    setRepairCars(payload.repairCars)
+    setCustomPerformance(payload.customPerformance)
+    setRacesCount(payload.racesCount)
+
+    const currentOwnedSet = new Set(payload.ownedCars)
+    const updatedCars = allCarsRef.current.map((c) => {
+      const carKey = `${c.Manufacturer}-${c.Model}-${c.Year}`
+      const perf = payload.customPerformance[carKey]
+      return {
+        ...c,
+        CarClass: perf ? perf.CarClass : c.CarClass,
+        PI: perf ? perf.PI : c.PI,
+        RaceType: perf ? perf.RaceType : c.RaceType,
+        RacesCount: payload.racesCount[carKey] ?? c.RacesCount,
+        NeedsRepair: payload.repairCars.includes(carKey)
+      }
+    })
+    setAllCars(updatedCars)
+    await dataService.saveCars(updatedCars.map((c) => mapCarToRaw(c, currentOwnedSet)))
+  }
+
+  // Exportar / Subir Copia a la Nube (Master Copy)
+  const handleExportCloud = async (
+    code: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    const localPayload: UserSyncPayload = {
+      ownedCars: ownedCarsRef.current,
+      garageCars: garageList,
+      usedCars,
+      repairCars,
+      customPerformance,
+      racesCount
+    }
+    return await exportToCloud(code, localPayload)
+  }
+
+  // Importar / Recuperar Copia de la Nube
+  const handleImportCloud = async (
+    code: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    const currentPayload: UserSyncPayload = {
+      ownedCars: ownedCarsRef.current,
+      garageCars: garageList,
+      usedCars,
+      repairCars,
+      customPerformance,
+      racesCount
+    }
+    const result = await importFromCloud(code, currentPayload)
+    if (result.success && result.mergedPayload) {
+      await applyPayloadToState(result.mergedPayload)
+    }
+    return result
+  }
+
+  // Restaurar Copia de Seguridad Previa Local
+  const handleRestoreSafetyBackup = async (): Promise<{ success: boolean; message?: string }> => {
+    const backup = getSafetyBackup()
+    if (!backup) return { success: false, message: 'No hay copia previa guardada' }
+    await applyPayloadToState(backup.payload)
+    return { success: true, message: '¡Copia anterior restaurada con éxito!' }
+  }
+
+  // Guardar rendimiento personalizado en localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('forza_custom_perf', JSON.stringify(customPerformance))
+    } catch (e) {
+      console.error('Failed saving custom performance to localStorage', e)
+    }
+  }, [customPerformance])
+
+  // Guardar carreras personalizadas en localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('forza_races_count', JSON.stringify(racesCount))
+    } catch (e) {
+      console.error('Failed saving races count to localStorage', e)
+    }
+  }, [racesCount])
+
+  // Función para actualizar y persistir el rendimiento de un vehículo
+  const handleUpdatePerformance = useCallback(
+    async (car: Car, newClass: string, newPI: number, newRaceType: string): Promise<void> => {
+      const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
+
+      setCustomPerformance((prev) => ({
+        ...prev,
+        [carKey]: { CarClass: newClass, PI: newPI, RaceType: newRaceType }
+      }))
+
+      const updatedAllCars = allCarsRef.current.map((item) => {
+        if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
+          return { ...item, CarClass: newClass, PI: newPI, RaceType: newRaceType }
+        }
+        return item
+      })
+      setAllCars(updatedAllCars)
+
+      setGarageList((prev) =>
+        prev.map((item) => {
+          if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
+            return { ...item, CarClass: newClass, PI: newPI, RaceType: newRaceType }
+          }
+          return item
+        })
+      )
+
       try {
-        const result = await window.electron.ipcRenderer.invoke('check-forza-updates')
-        if (result.success) {
-          setNewSyncedCars(result.newCars)
-          setSyncStatus('success')
-          if (result.newCars.length > 0 && result.updatedList) {
+        const currentOwnedSet = new Set(ownedCarsRef.current)
+        const mappedData = updatedAllCars.map((c) => mapCarToRaw(c, currentOwnedSet))
+        await dataService.saveCars(mappedData)
+      } catch (err) {
+        console.error('Error al persistir datos de autos', err)
+      }
+    },
+    []
+  )
+
+  // Función para actualizar y persistir el contador de carreras de un vehículo
+  const handleUpdateRaces = useCallback(async (car: Car, count: number): Promise<void> => {
+    const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
+
+    setRacesCount((prev) => ({
+      ...prev,
+      [carKey]: count
+    }))
+
+    const updatedAllCars = allCarsRef.current.map((item) => {
+      if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
+        return { ...item, RacesCount: count }
+      }
+      return item
+    })
+    setAllCars(updatedAllCars)
+
+    setGarageList((prev) =>
+      prev.map((item) => {
+        if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
+          return { ...item, RacesCount: count }
+        }
+        return item
+      })
+    )
+
+    try {
+      const currentOwnedSet = new Set(ownedCarsRef.current)
+      const mappedData = updatedAllCars.map((c) => mapCarToRaw(c, currentOwnedSet))
+      await dataService.saveCars(mappedData)
+    } catch (err) {
+      console.error('Error al persistir datos de autos', err)
+    }
+  }, [])
+
+  // Cargar automáticamente al iniciar la aplicación (disco o almacenamiento local)
+  useEffect(() => {
+    const fetchInitialCars = async (): Promise<void> => {
+      try {
+        const diskData = await dataService.loadCars()
+        if (diskData && Array.isArray(diskData) && diskData.length > 0) {
+          const mapped = diskData.map((item) => {
+            const parsedCar = mapRawToCar(item)
+            const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
+            const cClass = customPerformance[carKey]
+              ? customPerformance[carKey].CarClass
+              : parsedCar.CarClass || ''
+            const cPI = customPerformance[carKey]
+              ? customPerformance[carKey].PI
+              : parsedCar.PI || 0
+            const cRace =
+              customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
+                ? customPerformance[carKey].RaceType
+                : parsedCar.RaceType || ''
+            const cRaces =
+              racesCount[carKey] !== undefined ? racesCount[carKey] : parsedCar.RacesCount || 0
+
+            return {
+              ...parsedCar,
+              CarClass: cClass,
+              PI: cPI,
+              RaceType: cRace,
+              RacesCount: cRaces
+            }
+          })
+          const deduplicatedMapped = deduplicateCars(mapped)
+          setAllCars(deduplicatedMapped)
+
+          const diskRepairKeys = deduplicatedMapped
+            .filter((car) => car.NeedsRepair)
+            .map((car) => `${car.Manufacturer}-${car.Model}-${car.Year}`)
+          setRepairCars((prev) => Array.from(new Set([...prev, ...diskRepairKeys])))
+
+          const diskOwnedKeys = diskData
+            .filter((item) => item['Is own?'] === 'TRUE' || item.isOwned)
+            .map((item) => {
+              const mappedCar = mapRawToCar(item)
+              return `${mappedCar.Manufacturer}-${mappedCar.Model}-${mappedCar.Year}`
+            })
+          setOwnedCars((prev) => Array.from(new Set([...prev, ...diskOwnedKeys])))
+        }
+      } catch (e) {
+        console.error('Failed auto-fetching cars on mount', e)
+      }
+    }
+    fetchInitialCars()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Escuchar sincronizaciones de base de datos y refrescar dinámicamente
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleDataUpdated = (updatedData: any[]): void => {
+      console.log('Received updated database from sync')
+      if (updatedData && Array.isArray(updatedData)) {
+        setAllCars((prevAllCars) => {
+          // Find difference to show in SyncModal
+          const existingKeys = new Set(
+            prevAllCars.map((c) => `${c.Manufacturer}-${c.Model}-${c.Year}`)
+          )
+          const rawNewCars: any[] = []
+
+          updatedData.forEach((item) => {
+            const parsedCar = mapRawToCar(item)
+            const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
+            if (!existingKeys.has(carKey)) {
+              rawNewCars.push(item)
+            }
+          })
+
+          if (rawNewCars.length > 0) {
+            setNewSyncedCars(rawNewCars)
+            setSyncStatus('success')
+            setIsSyncModalOpen(true)
+
             // Update changelog
-            const changelogCars: ChangelogCar[] = result.newCars.map((item: any) => {
+            const changelogCars: ChangelogCar[] = rawNewCars.map((item: any) => {
               const parsed = mapRawToCar(item)
               return {
                 Brand: parsed.Manufacturer,
@@ -371,340 +770,56 @@ export default function App(): React.JSX.Element {
                 ...prev
               ]
             })
-            setAllCars(() => {
-              const mapped = result.updatedList.map((item: any) => {
-                const parsedCar = mapRawToCar(item)
-                const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
-                const cClass = customPerformance[carKey]
-                  ? customPerformance[carKey].CarClass
-                  : parsedCar.CarClass || ''
-                const cPI = customPerformance[carKey]
-                  ? customPerformance[carKey].PI
-                  : parsedCar.PI || 0
-                const cRace =
-                  customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
-                    ? customPerformance[carKey].RaceType
-                    : parsedCar.RaceType || ''
-                const cRaces =
-                  racesCount[carKey] !== undefined ? racesCount[carKey] : parsedCar.RacesCount || 0
-
-                return {
-                  ...parsedCar,
-                  CarClass: cClass,
-                  PI: cPI,
-                  RaceType: cRace,
-                  RacesCount: cRaces
-                }
-              })
-
-              const diskRepairKeys = mapped
-                .filter((car) => car.NeedsRepair)
-                .map((car) => `${car.Manufacturer}-${car.Model}-${car.Year}`)
-              setRepairCars((prev) => Array.from(new Set([...prev, ...diskRepairKeys])))
-
-              const diskOwnedKeys = result.updatedList
-                .filter((item: any) => item['Is own?'] === 'TRUE' || item.isOwned)
-                .map((item: any) => {
-                  const mappedCar = mapRawToCar(item)
-                  return `${mappedCar.Manufacturer}-${mappedCar.Model}-${mappedCar.Year}`
-                })
-              setOwnedCars((prev) => Array.from(new Set([...prev, ...diskOwnedKeys])))
-
-              return mapped
-            })
           }
-        } else {
-          setSyncStatus('error')
-          setSyncErrorMessage(result.error || 'Error al conectar')
-        }
-      } catch (err: any) {
-        console.error('Error invoking check-forza-updates', err)
-        setSyncStatus('error')
-        setSyncErrorMessage(err.message || 'Error de conexión')
-      }
-    } else {
-      setTimeout(() => {
-        setSyncStatus('success')
-        setNewSyncedCars([])
-      }, 1000)
-    }
-  }
 
-  // Guardar rendimiento personalizado en localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('forza_custom_perf', JSON.stringify(customPerformance))
-    } catch (e) {
-      console.error('Failed saving custom performance to localStorage', e)
-    }
-  }, [customPerformance])
+          const mapped = updatedData.map((item) => {
+            const parsedCar = mapRawToCar(item)
+            const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
+            const cClass = customPerformance[carKey]
+              ? customPerformance[carKey].CarClass
+              : parsedCar.CarClass || ''
+            const cPI = customPerformance[carKey]
+              ? customPerformance[carKey].PI
+              : parsedCar.PI || 0
+            const cRace =
+              customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
+                ? customPerformance[carKey].RaceType
+                : parsedCar.RaceType || ''
+            const cRaces =
+              racesCount[carKey] !== undefined ? racesCount[carKey] : parsedCar.RacesCount || 0
 
-  // Guardar carreras personalizadas en localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('forza_races_count', JSON.stringify(racesCount))
-    } catch (e) {
-      console.error('Failed saving races count to localStorage', e)
-    }
-  }, [racesCount])
-
-  // Función para actualizar y persistir el rendimiento de un vehículo
-  const handleUpdatePerformance = async (
-    car: Car,
-    newClass: string,
-    newPI: number,
-    newRaceType: string
-  ): Promise<void> => {
-    const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-
-    // 1. Guardar en localStorage
-    const updatedCustom = {
-      ...customPerformance,
-      [carKey]: { CarClass: newClass, PI: newPI, RaceType: newRaceType }
-    }
-    setCustomPerformance(updatedCustom)
-
-    // 2. Actualizar estado actual en memoria
-    const updatedAllCars = allCars.map((item) => {
-      if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
-        return { ...item, CarClass: newClass, PI: newPI, RaceType: newRaceType }
-      }
-      return item
-    })
-    setAllCars(updatedAllCars)
-
-    // 3. Actualizar también la lista del garaje si el auto está ahí
-    setGarageList((prev) =>
-      prev.map((item) => {
-        if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
-          return { ...item, CarClass: newClass, PI: newPI, RaceType: newRaceType }
-        }
-        return item
-      })
-    )
-
-    // 4. Intentar guardar en el archivo JSON físico del disco mediante IPC
-    if (window.electron && window.electron.ipcRenderer) {
-      try {
-        const ownedSet = new Set(ownedCars)
-        const mappedData = updatedAllCars.map((c) => mapCarToRaw(c, ownedSet))
-        await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
-      } catch (err) {
-        console.error('Error al intentar guardar en el archivo JSON físico', err)
-      }
-    }
-  }
-
-  // Función para actualizar y persistir el contador de carreras de un vehículo
-  const handleUpdateRaces = async (car: Car, count: number): Promise<void> => {
-    const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-
-    // 1. Guardar en localStorage
-    const updatedRaces = {
-      ...racesCount,
-      [carKey]: count
-    }
-    setRacesCount(updatedRaces)
-
-    // 2. Actualizar estado actual en memoria
-    const updatedAllCars = allCars.map((item) => {
-      if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
-        return { ...item, RacesCount: count }
-      }
-      return item
-    })
-    setAllCars(updatedAllCars)
-
-    // 3. Actualizar también la lista del garaje si el auto está ahí
-    setGarageList((prev) =>
-      prev.map((item) => {
-        if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
-          return { ...item, RacesCount: count }
-        }
-        return item
-      })
-    )
-
-    // 4. Intentar guardar en el archivo JSON físico del disco mediante IPC
-    if (window.electron && window.electron.ipcRenderer) {
-      try {
-        const ownedSet = new Set(ownedCars)
-        const mappedData = updatedAllCars.map((c) => mapCarToRaw(c, ownedSet))
-        await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
-      } catch (err) {
-        console.error('Error al intentar guardar en el archivo JSON físico', err)
-      }
-    }
-  }
-
-  // Cargar automáticamente desde el disco al iniciar la aplicación si está disponible
-  useEffect(() => {
-    const fetchDisk = async (): Promise<void> => {
-      try {
-        if (window.electron && window.electron.ipcRenderer) {
-          const diskData = await window.electron.ipcRenderer.invoke('get-forza-data')
-          if (diskData && Array.isArray(diskData) && diskData.length > 0) {
-            const mapped = diskData.map((item) => {
-              const parsedCar = mapRawToCar(item)
-              const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
-              const cClass = customPerformance[carKey]
-                ? customPerformance[carKey].CarClass
-                : parsedCar.CarClass || ''
-              const cPI = customPerformance[carKey]
-                ? customPerformance[carKey].PI
-                : parsedCar.PI || 0
-              const cRace =
-                customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
-                  ? customPerformance[carKey].RaceType
-                  : parsedCar.RaceType || ''
-              const cRaces =
-                racesCount[carKey] !== undefined ? racesCount[carKey] : parsedCar.RacesCount || 0
-
-              return {
-                ...parsedCar,
-                CarClass: cClass,
-                PI: cPI,
-                RaceType: cRace,
-                RacesCount: cRaces
-              }
-            })
-            setAllCars(mapped)
-
-            const diskRepairKeys = mapped
-              .filter((car) => car.NeedsRepair)
-              .map((car) => `${car.Manufacturer}-${car.Model}-${car.Year}`)
-            setRepairCars((prev) => Array.from(new Set([...prev, ...diskRepairKeys])))
-
-            const diskOwnedKeys = diskData
-              .filter((item) => item['Is own?'] === 'TRUE' || item.isOwned)
-              .map((item) => {
-                const mappedCar = mapRawToCar(item)
-                return `${mappedCar.Manufacturer}-${mappedCar.Model}-${mappedCar.Year}`
-              })
-            setOwnedCars((prev) => Array.from(new Set([...prev, ...diskOwnedKeys])))
-          }
-        }
-      } catch (e) {
-        console.error('Failed auto-fetching disk JSON on mount', e)
-      }
-    }
-    fetchDisk()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Listen for background database sync updates and refresh UI dynamically
-  useEffect(() => {
-    if (window.electron && window.electron.ipcRenderer) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const handleDataUpdated = (_event: any, updatedData: any[]): void => {
-        console.log('Received updated database from background sync')
-        if (updatedData && Array.isArray(updatedData)) {
-          setAllCars((prevAllCars) => {
-            // Find difference to show in SyncModal
-            const existingKeys = new Set(
-              prevAllCars.map((c) => `${c.Manufacturer}-${c.Model}-${c.Year}`)
-            )
-            const rawNewCars: any[] = []
-
-            updatedData.forEach((item) => {
-              const parsedCar = mapRawToCar(item)
-              const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
-              if (!existingKeys.has(carKey)) {
-                rawNewCars.push(item)
-              }
-            })
-
-            if (rawNewCars.length > 0) {
-              setNewSyncedCars(rawNewCars)
-              setSyncStatus('success')
-              setIsSyncModalOpen(true)
-
-              // Update changelog
-              const changelogCars: ChangelogCar[] = rawNewCars.map((item: any) => {
-                const parsed = mapRawToCar(item)
-                return {
-                  Brand: parsed.Manufacturer,
-                  Model: parsed.Model,
-                  Year: parsed.Year,
-                  Class: parsed.CarClass || 'D',
-                  PI: parsed.PI || 100,
-                  source: parsed.CarType || 'General'
-                }
-              })
-              setChangelog((prev) => {
-                if (prev.length > 0) {
-                  const lastEntry = prev[0]
-                  if (lastEntry.cars.length === changelogCars.length) {
-                    const allSame = changelogCars.every((car) =>
-                      lastEntry.cars.some(
-                        (lastCar) =>
-                          lastCar.Brand === car.Brand &&
-                          lastCar.Model === car.Model &&
-                          lastCar.Year === car.Year
-                      )
-                    )
-                    if (allSame) return prev
-                  }
-                }
-                return [
-                  {
-                    date: new Date().toISOString(),
-                    cars: changelogCars
-                  },
-                  ...prev
-                ]
-              })
+            return {
+              ...parsedCar,
+              CarClass: cClass,
+              PI: cPI,
+              RaceType: cRace,
+              RacesCount: cRaces
             }
-
-            const mapped = updatedData.map((item) => {
-              const parsedCar = mapRawToCar(item)
-              const carKey = `${parsedCar.Manufacturer}-${parsedCar.Model}-${parsedCar.Year}`
-              const cClass = customPerformance[carKey]
-                ? customPerformance[carKey].CarClass
-                : parsedCar.CarClass || ''
-              const cPI = customPerformance[carKey]
-                ? customPerformance[carKey].PI
-                : parsedCar.PI || 0
-              const cRace =
-                customPerformance[carKey] && customPerformance[carKey].RaceType !== undefined
-                  ? customPerformance[carKey].RaceType
-                  : parsedCar.RaceType || ''
-              const cRaces =
-                racesCount[carKey] !== undefined ? racesCount[carKey] : parsedCar.RacesCount || 0
-
-              return {
-                ...parsedCar,
-                CarClass: cClass,
-                PI: cPI,
-                RaceType: cRace,
-                RacesCount: cRaces
-              }
-            })
-
-            const diskRepairKeys = mapped
-              .filter((car) => car.NeedsRepair)
-              .map((car) => `${car.Manufacturer}-${car.Model}-${car.Year}`)
-            setRepairCars((prev) => Array.from(new Set([...prev, ...diskRepairKeys])))
-
-            const diskOwnedKeys = updatedData
-              .filter((item) => item['Is own?'] === 'TRUE' || item.isOwned)
-              .map((item) => {
-                const mappedCar = mapRawToCar(item)
-                return `${mappedCar.Manufacturer}-${mappedCar.Model}-${mappedCar.Year}`
-              })
-            setOwnedCars((prev) => Array.from(new Set([...prev, ...diskOwnedKeys])))
-
-            return mapped
           })
-        }
-      }
 
-      window.electron.ipcRenderer.on('forza-data-updated', handleDataUpdated)
-      return (): void => {
-        window.electron.ipcRenderer.removeAllListeners('forza-data-updated')
+          const diskRepairKeys = mapped
+            .filter((car) => car.NeedsRepair)
+            .map((car) => `${car.Manufacturer}-${car.Model}-${car.Year}`)
+          setRepairCars((prev) => Array.from(new Set([...prev, ...diskRepairKeys])))
+
+          const diskOwnedKeys = updatedData
+            .filter((item: any) => item['Is own?'] === 'TRUE' || item.isOwned)
+            .map((item: any) => {
+              const mappedCar = mapRawToCar(item)
+              return `${mappedCar.Manufacturer}-${mappedCar.Model}-${mappedCar.Year}`
+            })
+          setOwnedCars((prev) => Array.from(new Set([...prev, ...diskOwnedKeys])))
+
+          return deduplicateCars(mapped)
+        })
       }
     }
-    return undefined
-  }, [customPerformance, racesCount])
+
+    const unsubscribe = dataService.onCarsUpdated(handleDataUpdated)
+    return (): void => {
+      unsubscribe()
+    }
+  }, [customPerformance, racesCount, deduplicateCars])
 
   // Reset to page 1 when search query or filters change
   useEffect(() => {
@@ -712,8 +827,10 @@ export default function App(): React.JSX.Element {
     setCurrentPage(1)
   }, [
     searchQuery,
+    selectedCarClass,
     selectedCarType,
     selectedRaceType,
+    filterFavorites,
     sortBy,
     filterOwned,
     filterUsed,
@@ -753,6 +870,17 @@ export default function App(): React.JSX.Element {
     }
   }, [repairCars])
 
+  // Extract unique car classes for filter dropdown
+  const carClassesList = useMemo(() => {
+    const standard = ['D', 'C', 'B', 'A', 'S1', 'S2', 'X']
+    const found = new Set<string>()
+    allCars.forEach((c) => {
+      if (c.CarClass) found.add(c.CarClass.toUpperCase().trim())
+    })
+    const all = Array.from(new Set([...standard, ...Array.from(found)]))
+    return all.sort((a, b) => (CLASS_ORDER[a] || 99) - (CLASS_ORDER[b] || 99))
+  }, [allCars])
+
   // Extract unique car types for filter dropdown
   const carTypesList = useMemo(() => {
     const types = new Set<string>()
@@ -763,7 +891,7 @@ export default function App(): React.JSX.Element {
   }, [allCars])
 
   // Toggle Favorite
-  const toggleFavorite = (car: Car): void => {
+  const toggleFavorite = useCallback((car: Car): void => {
     setGarageList((prev) => {
       const exists = prev.some(
         (item) =>
@@ -784,31 +912,27 @@ export default function App(): React.JSX.Element {
         return [...prev, car]
       }
     })
-  }
+  }, [])
 
   // Toggle Owned
-  const toggleOwned = async (car: Car): Promise<void> => {
+  const toggleOwned = useCallback(async (car: Car): Promise<void> => {
     const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-    let updatedOwned: string[]
-    const isNowOwned = !ownedCars.includes(carKey)
+    const currentOwned = ownedCarsRef.current
+    const isNowOwned = !currentOwned.includes(carKey)
+    const updatedOwned = isNowOwned
+      ? [...currentOwned, carKey]
+      : currentOwned.filter((k) => k !== carKey)
 
-    if (isNowOwned) {
-      updatedOwned = [...ownedCars, carKey]
-    } else {
-      updatedOwned = ownedCars.filter((k) => k !== carKey)
-    }
     setOwnedCars(updatedOwned)
 
-    if (window.electron && window.electron.ipcRenderer) {
-      try {
-        const ownedSet = new Set(updatedOwned)
-        const mappedData = allCars.map((c) => mapCarToRaw(c, ownedSet))
-        await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
-      } catch (err) {
-        console.error('Error al intentar guardar en el archivo JSON físico', err)
-      }
+    try {
+      const currentOwnedSet = new Set(updatedOwned)
+      const mappedData = allCarsRef.current.map((c) => mapCarToRaw(c, currentOwnedSet))
+      await dataService.saveCars(mappedData)
+    } catch (err) {
+      console.error('Error al persistir datos de autos', err)
     }
-  }
+  }, [])
 
   // Clear All Owned Cars
   const handleClearAllOwned = (): void => {
@@ -820,32 +944,41 @@ export default function App(): React.JSX.Element {
         setOwnedCars([])
         localStorage.removeItem('forza_owned')
 
-        if (window.electron && window.electron.ipcRenderer) {
-          try {
-            const ownedSet = new Set<string>()
-            const mappedData = allCars.map((c) => mapCarToRaw(c, ownedSet))
-            await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
-            alert(t['Alert.clearAllOwnedSuccess'])
-          } catch (err) {
-            console.error('Error al intentar guardar en el archivo JSON físico', err)
-            alert(t['Alert.clearAllOwnedError'])
-          }
-        } else {
-          alert(t['Alert.clearAllOwnedSuccessAppOnly'])
+        try {
+          const ownedSet = new Set<string>()
+          const mappedData = allCars.map((c) => mapCarToRaw(c, ownedSet))
+          await dataService.saveCars(mappedData)
+          alert(t['Alert.clearAllOwnedSuccess'])
+        } catch (err) {
+          console.error('Error al persistir datos de autos', err)
+          alert(t['Alert.clearAllOwnedError'])
         }
       }
     })
   }
 
-  const handleOpenAddModal = (): void => {
-    setEditingCar(undefined)
-    setIsModalOpen(true)
+  // Clear All Favorites in Garage
+  const handleClearAllFavorites = (): void => {
+    setConfirmModal({
+      isOpen: true,
+      title: language === 'es' ? 'Vaciar Favoritos' : 'Clear All Favorites',
+      message: t['Confirm.clearAllFavorites'],
+      onConfirm: () => {
+        setGarageList([])
+        localStorage.removeItem('forza_garage')
+      }
+    })
   }
 
-  const handleOpenEditModal = (car: Car): void => {
+  const handleOpenAddModal = useCallback((): void => {
+    setEditingCar(undefined)
+    setIsModalOpen(true)
+  }, [])
+
+  const handleOpenEditModal = useCallback((car: Car): void => {
     setEditingCar(car)
     setIsModalOpen(true)
-  }
+  }, [])
 
   const handleSaveCar = async (carData: {
     Manufacturer: string
@@ -946,59 +1079,58 @@ export default function App(): React.JSX.Element {
           '326/605': ''
         }
       }
-      updatedCars = [newCar, ...allCars]
+      updatedCars = deduplicateCars([newCar, ...allCars])
     }
 
     setAllCars(updatedCars)
     setIsModalOpen(false)
     setEditingCar(undefined)
 
-    // Save to file
-    if (window.electron && window.electron.ipcRenderer) {
-      try {
-        const ownedSet = new Set(updatedOwned)
-        const mappedData = updatedCars.map((c) => mapCarToRaw(c, ownedSet))
-        await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
-      } catch (err) {
-        console.error('Error al intentar guardar en el archivo JSON físico', err)
-      }
+    // Save to storage
+    try {
+      const ownedSet = new Set(updatedOwned)
+      const mappedData = updatedCars.map((c) => mapCarToRaw(c, ownedSet))
+      await dataService.saveCars(mappedData)
+    } catch (err) {
+      console.error('Error al persistir datos de autos', err)
     }
   }
 
-  const handleDeleteCar = (car: Car): void => {
-    const carName = `${car.Manufacturer} ${car.Model} (${car.Year})`
-    setConfirmModal({
-      isOpen: true,
-      title: language === 'es' ? 'Eliminar Vehículo' : 'Delete Vehicle',
-      message: t['Confirm.deleteCar'].replace('{carName}', carName),
-      onConfirm: async () => {
-        const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-        const updatedCars = allCars.filter(
-          (c) => `${c.Manufacturer}-${c.Model}-${c.Year}` !== carKey
-        )
-        setAllCars(updatedCars)
+  const handleDeleteCar = useCallback(
+    (car: Car): void => {
+      const carName = `${car.Manufacturer} ${car.Model} (${car.Year})`
+      setConfirmModal({
+        isOpen: true,
+        title: language === 'es' ? 'Eliminar Vehículo' : 'Delete Vehicle',
+        message: t['Confirm.deleteCar'].replace('{carName}', carName),
+        onConfirm: async () => {
+          const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
+          const updatedCars = allCarsRef.current.filter(
+            (c) => `${c.Manufacturer}-${c.Model}-${c.Year}` !== carKey
+          )
+          setAllCars(updatedCars)
 
-        // Remove from other state lists
-        setGarageList((prev) =>
-          prev.filter((c) => `${c.Manufacturer}-${c.Model}-${c.Year}` !== carKey)
-        )
-        const updatedOwned = ownedCars.filter((k) => k !== carKey)
-        setOwnedCars(updatedOwned)
-        setUsedCars((prev) => prev.filter((k) => k !== carKey))
-        setRepairCars((prev) => prev.filter((k) => k !== carKey))
+          // Remove from other state lists
+          setGarageList((prev) =>
+            prev.filter((c) => `${c.Manufacturer}-${c.Model}-${c.Year}` !== carKey)
+          )
+          const updatedOwned = ownedCarsRef.current.filter((k) => k !== carKey)
+          setOwnedCars(updatedOwned)
+          setUsedCars((prev) => prev.filter((k) => k !== carKey))
+          setRepairCars((prev) => prev.filter((k) => k !== carKey))
 
-        if (window.electron && window.electron.ipcRenderer) {
           try {
-            const ownedSet = new Set(updatedOwned)
-            const mappedData = updatedCars.map((c) => mapCarToRaw(c, ownedSet))
-            await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
+            const currentOwnedSet = new Set(updatedOwned)
+            const mappedData = updatedCars.map((c) => mapCarToRaw(c, currentOwnedSet))
+            await dataService.saveCars(mappedData)
           } catch (err) {
-            console.error('Error al intentar guardar en el archivo JSON físico', err)
+            console.error('Error al persistir datos de autos', err)
           }
         }
-      }
-    })
-  }
+      })
+    },
+    [language, t]
+  )
 
   // Extract unique brands for autocomplete
   const brandList = useMemo(() => {
@@ -1010,7 +1142,7 @@ export default function App(): React.JSX.Element {
   }, [allCars])
 
   // Toggle Used
-  const toggleUsed = (car: Car): void => {
+  const toggleUsed = useCallback((car: Car): void => {
     const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
     setUsedCars((prev) => {
       if (prev.includes(carKey)) {
@@ -1019,25 +1151,22 @@ export default function App(): React.JSX.Element {
         return [...prev, carKey]
       }
     })
-  }
+  }, [])
 
   // Toggle Repair
-  const toggleRepair = async (car: Car): Promise<void> => {
+  const toggleRepair = useCallback(async (car: Car): Promise<void> => {
     const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-    let updatedRepair: string[]
-    const isNowRepair = !repairCars.includes(carKey)
+    let isNowRepair = false
 
-    if (isNowRepair) {
-      updatedRepair = [...repairCars, carKey]
-    } else {
-      updatedRepair = repairCars.filter((k) => k !== carKey)
-    }
-    setRepairCars(updatedRepair)
+    setRepairCars((prev) => {
+      isNowRepair = !prev.includes(carKey)
+      return isNowRepair ? [...prev, carKey] : prev.filter((k) => k !== carKey)
+    })
 
     // Actualizar allCars en memoria para reflejar NeedsRepair
-    const updatedAllCars = allCars.map((item) => {
+    const updatedAllCars = allCarsRef.current.map((item) => {
       if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
-        return { ...item, NeedsRepair: isNowRepair }
+        return { ...item, NeedsRepair: !item.NeedsRepair }
       }
       return item
     })
@@ -1047,23 +1176,21 @@ export default function App(): React.JSX.Element {
     setGarageList((prev) =>
       prev.map((item) => {
         if (`${item.Manufacturer}-${item.Model}-${item.Year}` === carKey) {
-          return { ...item, NeedsRepair: isNowRepair }
+          return { ...item, NeedsRepair: !item.NeedsRepair }
         }
         return item
       })
     )
 
-    // Guardar en el archivo JSON físico del disco mediante IPC
-    if (window.electron && window.electron.ipcRenderer) {
-      try {
-        const ownedSet = new Set(ownedCars)
-        const mappedData = updatedAllCars.map((c) => mapCarToRaw(c, ownedSet))
-        await window.electron.ipcRenderer.invoke('save-forza-data', mappedData)
-      } catch (err) {
-        console.error('Error al intentar guardar en el archivo JSON físico', err)
-      }
+    // Guardar mediante el adaptador de persistencia
+    try {
+      const currentOwnedSet = new Set(ownedCarsRef.current)
+      const mappedData = updatedAllCars.map((c) => mapCarToRaw(c, currentOwnedSet))
+      await dataService.saveCars(mappedData)
+    } catch (err) {
+      console.error('Error al persistir datos de autos', err)
     }
-  }
+  }, [])
 
   // Randomizer Modal State & Handlers
   const handlePickRandom = (): void => {
@@ -1073,8 +1200,10 @@ export default function App(): React.JSX.Element {
   // Reset Filters
   const resetFilters = (): void => {
     setSearchQuery('')
+    setSelectedCarClass('')
     setSelectedCarType('')
     setSelectedRaceType('')
+    setFilterFavorites(false)
     setSortBy('manuf-asc')
     setFilterOwned('all')
     setFilterUsed('all')
@@ -1088,12 +1217,23 @@ export default function App(): React.JSX.Element {
         const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
 
         // Search query match (Manufacturer, Model)
-        if (searchQuery.trim() !== '') {
-          const query = searchQuery.toLowerCase()
+        if (deferredSearchQuery.trim() !== '') {
+          const query = deferredSearchQuery.toLowerCase()
           const manuf = car.Manufacturer ? String(car.Manufacturer).toLowerCase() : ''
           const model = car.Model ? String(car.Model).toLowerCase() : ''
           if (!manuf.includes(query) && !model.includes(query)) return false
         }
+
+        // CarClass match
+        if (
+          selectedCarClass !== '' &&
+          car.CarClass?.toUpperCase().trim() !== selectedCarClass.toUpperCase().trim()
+        ) {
+          return false
+        }
+
+        // Favorites match - O(1) Set lookup
+        if (filterFavorites && !garageSet.has(carKey)) return false
 
         // CarType match
         if (selectedCarType !== '' && car.CarType !== selectedCarType) return false
@@ -1107,26 +1247,29 @@ export default function App(): React.JSX.Element {
           }
         }
 
-        // Owned match
-        if (filterOwned === 'owned' && !ownedCars.includes(carKey)) return false
-        if (filterOwned === 'not_owned' && ownedCars.includes(carKey)) return false
+        // Owned match - O(1) Set lookup
+        if (filterOwned === 'owned' && !ownedSet.has(carKey)) return false
+        if (filterOwned === 'not_owned' && ownedSet.has(carKey)) return false
 
-        // Used match
-        if (filterUsed === 'used' && !usedCars.includes(carKey)) return false
-        if (filterUsed === 'not_used' && usedCars.includes(carKey)) return false
+        // Used match - O(1) Set lookup
+        if (filterUsed === 'used' && !usedSet.has(carKey)) return false
+        if (filterUsed === 'not_used' && usedSet.has(carKey)) return false
 
-        // Repair match
-        if (filterRepair === 'repair' && !repairCars.includes(carKey)) return false
-        if (filterRepair === 'not_repair' && repairCars.includes(carKey)) return false
+        // Repair match - O(1) Set lookup
+        if (filterRepair === 'repair' && !repairSet.has(carKey)) return false
+        if (filterRepair === 'not_repair' && repairSet.has(carKey)) return false
 
         return true
       })
       .sort((a, b) => {
         // Base manufacturer/model/year sub-sorting function for stability
         const compareBase = (x: Car, y: Car): number => {
-          const compManuf = String(x.Manufacturer || '').localeCompare(String(y.Manufacturer || ''))
+          const compManuf = stringCollator.compare(
+            String(x.Manufacturer || ''),
+            String(y.Manufacturer || '')
+          )
           if (compManuf !== 0) return compManuf
-          const compModel = String(x.Model || '').localeCompare(String(y.Model || ''))
+          const compModel = stringCollator.compare(String(x.Model || ''), String(y.Model || ''))
           if (compModel !== 0) return compModel
           return (y.Year || 0) - (x.Year || 0)
         }
@@ -1145,9 +1288,12 @@ export default function App(): React.JSX.Element {
           return compareBase(a, b)
         }
         if (sortBy === 'manuf-desc') {
-          const compManuf = String(b.Manufacturer || '').localeCompare(String(a.Manufacturer || ''))
+          const compManuf = stringCollator.compare(
+            String(b.Manufacturer || ''),
+            String(a.Manufacturer || '')
+          )
           if (compManuf !== 0) return compManuf
-          const compModel = String(a.Model || '').localeCompare(String(b.Model || ''))
+          const compModel = stringCollator.compare(String(a.Model || ''), String(b.Model || ''))
           if (compModel !== 0) return compModel
           return (b.Year || 0) - (a.Year || 0)
         }
@@ -1172,7 +1318,7 @@ export default function App(): React.JSX.Element {
           const raceB = b.RaceType || ''
           if (raceA === '' && raceB !== '') return 1
           if (raceB === '' && raceA !== '') return -1
-          const compRace = raceA.localeCompare(raceB)
+          const compRace = stringCollator.compare(raceA, raceB)
           if (compRace !== 0) return compRace
           return compareBase(a, b)
         }
@@ -1181,7 +1327,7 @@ export default function App(): React.JSX.Element {
           const raceB = b.RaceType || ''
           if (raceA === '' && raceB !== '') return 1
           if (raceB === '' && raceA !== '') return -1
-          const compRace = raceB.localeCompare(raceA)
+          const compRace = stringCollator.compare(raceB, raceA)
           if (compRace !== 0) return compRace
           return compareBase(a, b)
         }
@@ -1199,16 +1345,19 @@ export default function App(): React.JSX.Element {
       })
   }, [
     allCars,
-    searchQuery,
+    deferredSearchQuery,
+    selectedCarClass,
     selectedCarType,
     selectedRaceType,
+    filterFavorites,
     sortBy,
     filterOwned,
     filterUsed,
     filterRepair,
-    ownedCars,
-    usedCars,
-    repairCars
+    ownedSet,
+    usedSet,
+    repairSet,
+    garageSet
   ])
 
   // Pagination calculation for Explore view
@@ -1218,8 +1367,30 @@ export default function App(): React.JSX.Element {
     return filteredCars.slice(start, start + itemsPerPage)
   }, [filteredCars, currentPage])
 
+  if (!isAppReady) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-brand-dark-deep text-white select-none">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-primary/10 border border-brand-primary/30 p-2 shadow-xl shadow-brand-primary/20 mb-4 animate-pulse">
+          <Flame className="h-7 w-7 text-brand-primary" />
+        </div>
+        <h1 className="text-xl font-extrabold tracking-tight text-white mb-4">
+          FORZA<span className="text-brand-primary">CHECK</span>
+        </h1>
+        <div className="h-1 w-36 overflow-hidden rounded-full bg-brand-dark-card">
+          <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-brand-primary to-brand-primary-light animate-indeterminate" />
+        </div>
+        <p className="mt-3 text-xs font-semibold text-slate-400">
+          {language === 'es' ? 'Cargando colección...' : 'Loading collection...'}
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <div className="h-screen bg-brand-dark text-[#f1f5f9] flex flex-col font-sans selection:bg-brand-primary/30 selection:text-white border border-brand-primary/30 overflow-hidden">
+    <div
+      className="h-screen bg-brand-dark text-[#f1f5f9] flex flex-col font-sans selection:bg-brand-primary/30 selection:text-white border border-brand-primary/30 overflow-hidden"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+    >
       {/* Custom Window Title Bar */}
       <TitleBar />
 
@@ -1232,6 +1403,7 @@ export default function App(): React.JSX.Element {
         onClearAllOwned={handleClearAllOwned}
         onAddCar={handleOpenAddModal}
         onSyncCatalog={handleSyncCatalog}
+        onOpenCloudSync={() => setIsCloudSyncModalOpen(true)}
         onOpenChangelog={() => setIsChangelogModalOpen(true)}
         language={language}
         toggleLanguage={toggleLanguage}
@@ -1242,20 +1414,25 @@ export default function App(): React.JSX.Element {
         <Filters
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
-          selectedCarType={selectedCarType}
-          setSelectedCarType={setSelectedCarType}
+          selectedCarClass={selectedCarClass}
+          setSelectedCarClass={setSelectedCarClass}
+          carClasses={carClassesList}
           selectedRaceType={selectedRaceType}
           setSelectedRaceType={setSelectedRaceType}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          carTypes={carTypesList}
-          resetFilters={resetFilters}
+          filterFavorites={filterFavorites}
+          setFilterFavorites={setFilterFavorites}
           filterOwned={filterOwned}
           setFilterOwned={setFilterOwned}
           filterUsed={filterUsed}
           setFilterUsed={setFilterUsed}
           filterRepair={filterRepair}
           setFilterRepair={setFilterRepair}
+          selectedCarType={selectedCarType}
+          setSelectedCarType={setSelectedCarType}
+          carTypes={carTypesList}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          resetFilters={resetFilters}
           onPickRandom={handlePickRandom}
           isRandomDisabled={allCars.length === 0}
           language={language}
@@ -1300,15 +1477,10 @@ export default function App(): React.JSX.Element {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {displayedCars.map((car) => {
                       const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-                      const isFav = garageList.some(
-                        (item) =>
-                          item.Manufacturer === car.Manufacturer &&
-                          item.Model === car.Model &&
-                          item.Year === car.Year
-                      )
-                      const isOwned = ownedCars.includes(carKey)
-                      const isUsed = usedCars.includes(carKey)
-                      const isRepair = repairCars.includes(carKey)
+                      const isFav = garageSet.has(carKey)
+                      const isOwned = ownedSet.has(carKey)
+                      const isUsed = usedSet.has(carKey)
+                      const isRepair = repairSet.has(carKey)
 
                       return (
                         <CarCard
@@ -1347,6 +1519,7 @@ export default function App(): React.JSX.Element {
             <GarageView
               garageList={garageList}
               toggleFavorite={toggleFavorite}
+              onClearAllFavorites={handleClearAllFavorites}
               ownedCars={ownedCars}
               toggleOwned={toggleOwned}
               usedCars={usedCars}
@@ -1387,6 +1560,7 @@ export default function App(): React.JSX.Element {
         repairCars={repairCars}
         garageList={garageList}
         carTypes={carTypesList}
+        defaultClass={selectedCarClass}
         defaultRaceType={selectedRaceType}
         defaultCarType={selectedCarType}
         defaultOwned={filterOwned}
@@ -1431,6 +1605,42 @@ export default function App(): React.JSX.Element {
         changelog={changelog}
         onClearHistory={handleClearChangelog}
       />
+
+      {/* Cloud Sync Modal */}
+      <CloudSyncModal
+        isOpen={isCloudSyncModalOpen}
+        onClose={() => setIsCloudSyncModalOpen(false)}
+        onExport={handleExportCloud}
+        onImport={handleImportCloud}
+        onRestoreBackup={handleRestoreSafetyBackup}
+        hasSafetyBackup={!!getSafetyBackup()}
+        language={language}
+      />
+
+      {/* Live Update Toast / Prompt */}
+      {updateReadyVersion && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-brand-dark-card/95 backdrop-blur-md border border-brand-primary/50 shadow-2xl text-white text-sm animate-in fade-in slide-in-from-bottom-5">
+          <Sparkles className="h-5 w-5 text-brand-primary shrink-0 animate-pulse" />
+          <span className="font-medium">
+            {language === 'es'
+              ? `Actualización ${updateReadyVersion} lista para instalar.`
+              : `Update ${updateReadyVersion} ready to install.`}
+          </span>
+          <button
+            onClick={() => liveUpdateService.reloadApp()}
+            className="px-3 py-1 rounded-xl bg-brand-primary text-black font-bold text-xs hover:bg-brand-primary-light active:scale-95 transition-all cursor-pointer"
+          >
+            {language === 'es' ? 'Reiniciar' : 'Restart'}
+          </button>
+          <button
+            onClick={() => setUpdateReadyVersion(null)}
+            className="text-slate-400 hover:text-white p-1 cursor-pointer transition-colors"
+            title={language === 'es' ? 'Descartar' : 'Dismiss'}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

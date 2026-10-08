@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import fs from 'fs'
+import fs, { promises as fsPromises } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { performFullSync } from './syncService'
@@ -112,8 +112,26 @@ app.whenReady().then(() => {
       }
     }
 
-    // Copy to userData path immediately to initialize if we loaded from bundled resources
-    if (loadPath && loadPath !== userDataPath) {
+    // Deduplicate on load to prevent phantom duplicates from older persisted stores
+    const seen = new Set<string>()
+    const deduplicatedData: any[] = []
+    for (const c of localData) {
+      const brand = c.Manufacturer || c.Brand || ''
+      const pf = c['point2580/4160'] || ''
+      const m = pf.match(/^(\d{4})\s+(.*)$/)
+      const y = m ? m[1] : c.Year || ''
+      const mod = m ? m[2] : c.Model || pf
+      const k = `${brand}-${mod}-${y}`.toLowerCase().replace(/\s+/g, ' ').trim()
+      if (!seen.has(k)) {
+        seen.add(k)
+        deduplicatedData.push(c)
+      }
+    }
+    const hadDuplicates = deduplicatedData.length !== localData.length
+    localData = deduplicatedData
+
+    // Copy to userData path immediately to initialize if we loaded from bundled resources or fixed duplicates
+    if ((loadPath && loadPath !== userDataPath) || hadDuplicates) {
       try {
         fs.writeFileSync(userDataPath, JSON.stringify(localData, null, 2), 'utf-8')
       } catch (e) {
@@ -139,31 +157,84 @@ app.whenReady().then(() => {
     return localData
   })
 
-  ipcMain.handle('save-forza-data', (_, data) => {
-    const possiblePaths = [
-      join(app.getPath('userData'), 'FH6Cars.json'),
-      join(process.cwd(), 'FH6Cars.json'),
-      join(app.getAppPath(), 'FH6Cars.json'),
-      join(__dirname, '../../src/renderer/src/assets/FH6Cars.json'),
-      join(__dirname, '../../FH6Cars.json')
-    ]
+  let saveTimeout: NodeJS.Timeout | null = null
+  let pendingSaveData: any = null
+  let pendingResolvers: ((value: boolean) => void)[] = []
 
-    let saved = false
-    for (const p of possiblePaths) {
-      try {
-        if (
-          p === join(app.getPath('userData'), 'FH6Cars.json') ||
-          fs.existsSync(p) ||
-          p === join(process.cwd(), 'FH6Cars.json')
-        ) {
-          fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8')
-          saved = true
+  const flushSave = async (): Promise<boolean> => {
+    if (!pendingSaveData) return true
+    const rawDataToSave = pendingSaveData
+    const resolvers = pendingResolvers
+    pendingSaveData = null
+    pendingResolvers = []
+
+    // Ensure deduplication before writing to disk
+    const seenKeys = new Set<string>()
+    const dataToSave: any[] = []
+    if (Array.isArray(rawDataToSave)) {
+      for (const c of rawDataToSave) {
+        const brand = c.Manufacturer || c.Brand || ''
+        const pf = c['point2580/4160'] || ''
+        const m = pf.match(/^(\d{4})\s+(.*)$/)
+        const y = m ? m[1] : c.Year || ''
+        const mod = m ? m[2] : c.Model || pf
+        const k = `${brand}-${mod}-${y}`.toLowerCase().replace(/\s+/g, ' ').trim()
+        if (!seenKeys.has(k)) {
+          seenKeys.add(k)
+          dataToSave.push(c)
         }
-      } catch (e) {
-        console.error(`Failed writing ${p}`, e)
       }
+    } else {
+      dataToSave.push(rawDataToSave)
     }
-    return saved
+
+    const userDataPath = join(app.getPath('userData'), 'FH6Cars.json')
+    const possiblePaths = [userDataPath]
+
+    if (is.dev) {
+      possiblePaths.push(
+        join(process.cwd(), 'FH6Cars.json'),
+        join(__dirname, '../../src/renderer/src/assets/FH6Cars.json'),
+        join(__dirname, '../../FH6Cars.json')
+      )
+    }
+
+    try {
+      const jsonContent = JSON.stringify(dataToSave, null, 2)
+      await Promise.all(
+        possiblePaths.map(async (p) => {
+          try {
+            if (p === userDataPath || fs.existsSync(p)) {
+              await fsPromises.writeFile(p, jsonContent, 'utf-8')
+            }
+          } catch (err) {
+            console.error(`Failed async writing to ${p}:`, err)
+          }
+        })
+      )
+      resolvers.forEach((res) => res(true))
+      return true
+    } catch (err) {
+      console.error('Failed serializing or saving data:', err)
+      resolvers.forEach((res) => res(false))
+      return false
+    }
+  }
+
+  ipcMain.handle('save-forza-data', (_, data) => {
+    pendingSaveData = data
+    return new Promise<boolean>((resolve) => {
+      pendingResolvers.push(resolve)
+      if (saveTimeout) clearTimeout(saveTimeout)
+      saveTimeout = setTimeout(flushSave, 250)
+    })
+  })
+
+  app.on('before-quit', () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout)
+      flushSave()
+    }
   })
 
   ipcMain.handle('check-forza-updates', async () => {

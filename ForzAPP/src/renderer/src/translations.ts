@@ -52,6 +52,12 @@ export const translations = {
     'Filters.healthy': 'Sanos',
     'Filters.allRaces': 'Todas las carreras',
     'Filters.allTypes': 'Todos los tipos',
+    'Filters.class': 'Clase:',
+    'Filters.allClasses': 'Todas las clases',
+    'Filters.favorites': 'Favoritos',
+    'Filters.onlyFavorites': 'Solo favoritos',
+    'Filters.moreFilters': 'Más filtros',
+    'Filters.lessFilters': 'Menos filtros',
 
     // CarCard
     'CarCard.general': 'General',
@@ -85,6 +91,10 @@ export const translations = {
     'Garage.empty': 'Tu Garaje está vacío',
     'Garage.emptyDesc':
       'Explora el catálogo de Forza Horizon y haz clic en el ícono de corazón de tus autos favoritos para guardarlos en tu garaje personalizado.',
+    'Garage.clearAllFavorites': 'Desmarcar todos',
+    'Garage.clearAllFavoritesTitle': 'Quitar todos los vehículos de tus favoritos',
+    'Confirm.clearAllFavorites':
+      '¿Estás seguro de que deseas quitar todos los vehículos de tus favoritos? Tu garaje quedará vacío.',
 
     // CarModal (Add/Edit)
     'CarModal.editTitle': 'Editar Vehículo',
@@ -215,6 +225,12 @@ export const translations = {
     'Filters.healthy': 'Healthy',
     'Filters.allRaces': 'All races',
     'Filters.allTypes': 'All types',
+    'Filters.class': 'Class:',
+    'Filters.allClasses': 'All classes',
+    'Filters.favorites': 'Favorites',
+    'Filters.onlyFavorites': 'Only favorites',
+    'Filters.moreFilters': 'More filters',
+    'Filters.lessFilters': 'Fewer filters',
 
     // CarCard
     'CarCard.general': 'General',
@@ -248,6 +264,10 @@ export const translations = {
     'Garage.empty': 'Your Garage is empty',
     'Garage.emptyDesc':
       'Explore the Forza Horizon catalog and click the heart icon on your favorite cars to save them in your custom garage.',
+    'Garage.clearAllFavorites': 'Uncheck all',
+    'Garage.clearAllFavoritesTitle': 'Remove all vehicles from your favorites',
+    'Confirm.clearAllFavorites':
+      'Are you sure you want to remove all vehicles from your favorites? Your garage will be emptied.',
 
     // CarModal (Add/Edit)
     'CarModal.editTitle': 'Edit Vehicle',

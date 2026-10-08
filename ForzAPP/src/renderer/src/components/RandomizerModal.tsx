@@ -224,7 +224,7 @@ export const RandomizerModal: React.FC<RandomizerModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 md:p-6 overflow-y-auto my-8 max-h-[100vh] animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 md:p-6 overflow-y-auto my-8 max-h-[100vh] animate-fadeIn">
       <div className="relative w-full max-w-5xl bg-brand-dark-card border border-brand-dark-border rounded-3xl p-6 md:p-8 shadow-2xl animate-scaleUp max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-brand-dark-border">

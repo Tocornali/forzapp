@@ -27,6 +27,19 @@
       transform: translateX(-50%);
     }
   }
+
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
+  }
+}
+
+.animate-indeterminate {
+  animation: indeterminate 1.2s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
 }
 
 @layer base {
@@ -46,6 +59,8 @@
       sans-serif;
     overflow-x: hidden;
     user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
     margin: 0;
     padding: 0;
   }

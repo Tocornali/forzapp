@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { Minus, Square, Copy, X, Flame } from 'lucide-react'
+import { isElectronEnvironment } from '../services/dataService'
 
-export const TitleBar: React.FC = (): React.JSX.Element => {
+export const TitleBar: React.FC = (): React.JSX.Element | null => {
+  if (!isElectronEnvironment()) {
+    return null
+  }
+
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {

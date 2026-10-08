@@ -20,11 +20,21 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:build": "npm run mobile:sync && cd android && gradlew.bat assembleRelease",
+    "mobile:build:debug": "npm run mobile:sync && cd android && gradlew.bat assembleDebug",
+    "mobile:open": "cap open android",
+    "mobile:run": "cap run android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capgo/capacitor-updater": "^8.51.25",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@supabase/supabase-js": "^2.117.2",
     "@tailwindcss/vite": "^4.3.0",
     "electron-updater": "^6.3.9",
     "lucide-react": "^1.16.0",

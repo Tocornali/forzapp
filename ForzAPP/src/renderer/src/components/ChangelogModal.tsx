@@ -77,7 +77,7 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
+        className="absolute inset-0 bg-slate-950/80 transition-opacity"
         onClick={onClose}
       />
 

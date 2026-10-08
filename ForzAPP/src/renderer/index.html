@@ -2,16 +2,105 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Electron</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>ForzAPP</title>
+    <!-- Content Security Policy -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://raw.githubusercontent.com https://forza.net https://*.githubusercontent.com https://*.supabase.co wss://*.supabase.co;"
     />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #121415;
+      }
+      .app-preloader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #1a1c1e 0%, #121415 100%);
+        color: #f1f5f9;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        user-select: none;
+      }
+      .preloader-icon-box {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        background: rgba(32, 178, 170, 0.1);
+        border: 1px solid rgba(32, 178, 170, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 16px;
+        box-shadow: 0 10px 25px -5px rgba(32, 178, 170, 0.2);
+        animation: pulse-glow 1.5s ease-in-out infinite;
+      }
+      .preloader-flame {
+        width: 28px;
+        height: 28px;
+      }
+      .preloader-title {
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        margin: 0 0 16px 0;
+        color: #ffffff;
+      }
+      .preloader-title span {
+        color: #20b2aa;
+      }
+      .preloader-bar-bg {
+        width: 140px;
+        height: 4px;
+        background: #232629;
+        border-radius: 99px;
+        overflow: hidden;
+      }
+      .preloader-bar-fill {
+        height: 100%;
+        width: 45%;
+        background: linear-gradient(90deg, #189e97, #20b2aa, #57c7b9);
+        border-radius: 99px;
+        animation: preloader-slide 1.2s ease-in-out infinite;
+      }
+      .preloader-sub {
+        margin-top: 12px;
+        font-size: 11px;
+        color: #94a3b8;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+      @keyframes pulse-glow {
+        0%, 100% { transform: scale(1); opacity: 0.85; filter: drop-shadow(0 0 8px rgba(32,178,170,0.3)); }
+        50% { transform: scale(1.06); opacity: 1; filter: drop-shadow(0 0 16px rgba(32,178,170,0.6)); }
+      }
+      @keyframes preloader-slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(350%); }
+      }
+    </style>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="app-preloader">
+        <div class="preloader-icon-box">
+          <svg class="preloader-flame" viewBox="0 0 24 24" fill="none" stroke="#20b2aa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+          </svg>
+        </div>
+        <div class="preloader-title">FORZA<span>CHECK</span></div>
+        <div class="preloader-bar-bg">
+          <div class="preloader-bar-fill"></div>
+        </div>
+        <div class="preloader-sub">Cargando colección...</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

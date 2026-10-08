@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Heart } from 'lucide-react'
+import { Heart, HeartOff } from 'lucide-react'
 import { Car } from '../types'
 import { CarCard } from './CarCard'
 import { Pagination } from './Pagination'
@@ -8,6 +8,7 @@ import { Language, translations } from '../translations'
 interface GarageViewProps {
   garageList: Car[]
   toggleFavorite: (car: Car) => void
+  onClearAllFavorites?: () => void
   ownedCars: string[]
   toggleOwned: (car: Car) => void
   usedCars: string[]
@@ -24,6 +25,7 @@ interface GarageViewProps {
 export const GarageView: React.FC<GarageViewProps> = ({
   garageList,
   toggleFavorite,
+  onClearAllFavorites,
   ownedCars,
   toggleOwned,
   usedCars,
@@ -40,13 +42,30 @@ export const GarageView: React.FC<GarageViewProps> = ({
   const itemsPerPage = 20
   const t = translations[language]
 
-  const totalPages = Math.ceil(garageList.length / itemsPerPage) || 1
+  const uniqueGarageList = useMemo(() => {
+    const seen = new Set<string>()
+    const res: Car[] = []
+    for (const c of garageList) {
+      const k = `${c.Manufacturer}-${c.Model}-${c.Year}`.toLowerCase().trim()
+      if (!seen.has(k)) {
+        seen.add(k)
+        res.push(c)
+      }
+    }
+    return res
+  }, [garageList])
+
+  const totalPages = Math.ceil(uniqueGarageList.length / itemsPerPage) || 1
   const activePage = Math.max(1, Math.min(currentPage, totalPages))
 
   const displayedGarage = useMemo(() => {
     const start = (activePage - 1) * itemsPerPage
-    return garageList.slice(start, start + itemsPerPage)
-  }, [garageList, activePage])
+    return uniqueGarageList.slice(start, start + itemsPerPage)
+  }, [uniqueGarageList, activePage])
+
+  const ownedSet = useMemo(() => new Set(ownedCars), [ownedCars])
+  const usedSet = useMemo(() => new Set(usedCars), [usedCars])
+  const repairSet = useMemo(() => new Set(repairCars), [repairCars])
 
   if (garageList.length === 0) {
     return (
@@ -72,14 +91,25 @@ export const GarageView: React.FC<GarageViewProps> = ({
             {t['Garage.subtitle'].replace('{count}', String(garageList.length))}
           </p>
         </div>
+
+        {onClearAllFavorites && garageList.length > 0 && (
+          <button
+            onClick={onClearAllFavorites}
+            className="cursor-pointer flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/20 hover:border-rose-500/70 hover:text-rose-300 transition-all shadow-sm active:scale-95"
+            title={t['Garage.clearAllFavoritesTitle']}
+          >
+            <HeartOff className="h-4 w-4 text-rose-400" />
+            <span>{t['Garage.clearAllFavorites']}</span>
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {displayedGarage.map((car) => {
           const carKey = `${car.Manufacturer}-${car.Model}-${car.Year}`
-          const isOwned = ownedCars.includes(carKey)
-          const isUsed = usedCars.includes(carKey)
-          const isRepair = repairCars.includes(carKey)
+          const isOwned = ownedSet.has(carKey)
+          const isUsed = usedSet.has(carKey)
+          const isRepair = repairSet.has(carKey)
 
           return (
             <CarCard
